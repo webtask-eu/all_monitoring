@@ -1,0 +1,3 @@
+<?php echo 'Clearing WordPress cache...
+'; wp_cache_flush(); echo 'Cache cleared.
+'; ?>
