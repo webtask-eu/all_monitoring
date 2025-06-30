@@ -1,0 +1,1009 @@
+/* Стили для административной панели */
+
+/* Стили для выбора серверов чекбоксами */
+.servers-checkbox-container {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.servers-controls {
+    padding: 10px 15px;
+    background: #f9f9f9;
+    border-bottom: 1px solid #eee;
+    font-size: 12px;
+}
+
+.servers-controls a {
+    color: #0073aa;
+    text-decoration: none;
+}
+
+.servers-controls a:hover {
+    text-decoration: underline;
+}
+
+.servers-list {
+    padding: 5px 0;
+}
+
+.server-checkbox-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 15px;
+    cursor: pointer;
+    border-bottom: 1px solid #f5f5f5;
+    transition: background-color 0.2s;
+}
+
+.server-checkbox-item:hover {
+    background-color: #f9f9f9;
+}
+
+.server-checkbox-item:last-child {
+    border-bottom: none;
+}
+
+.server-checkbox-item input[type="checkbox"] {
+    margin: 0 10px 0 0;
+    cursor: pointer;
+}
+
+.server-checkbox-item .server-name {
+    font-weight: 600;
+    color: #333;
+    flex: 1;
+}
+
+.server-checkbox-item .server-address {
+    font-size: 11px;
+    color: #666;
+    font-family: monospace;
+    background: #f5f5f5;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.servers-placeholder,
+.servers-loading {
+    padding: 15px;
+    text-align: center;
+    color: #666;
+    font-style: italic;
+}
+
+.servers-loading {
+    background: #f9f9f9;
+}
+
+.servers-selected-count {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #666;
+    padding: 5px 10px;
+    background: #e7f3ff;
+    border-radius: 3px;
+    display: inline-block;
+}
+
+.servers-selected-count .count {
+    font-weight: bold;
+    color: #0073aa;
+}
+
+/* Стили для отключенного состояния */
+.servers-checkbox-container[data-disabled="true"] {
+    background: #f5f5f5;
+    color: #999;
+}
+
+.servers-checkbox-container[data-disabled="true"] .server-checkbox-item {
+    cursor: not-allowed;
+}
+
+.servers-checkbox-container[data-disabled="true"] input[type="checkbox"] {
+    cursor: not-allowed;
+}
+
+/* Адаптивность */
+@media (max-width: 782px) {
+    .server-checkbox-item {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 10px 15px;
+    }
+    
+    .server-checkbox-item input[type="checkbox"] {
+        margin-bottom: 5px;
+    }
+    
+    .server-checkbox-item .server-address {
+        margin-top: 3px;
+    }
+}
+
+/* Стили для контейнера статуса обновления */
+.update-status-container {
+    margin-bottom: 30px;
+    background: #fff;
+    padding: 15px;
+    border: 1px solid #e5e5e5;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+}
+
+.update-status-container h3 {
+    margin-top: 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.update-status-container h4 {
+    margin: 20px 0 10px;
+    font-size: 14px;
+}
+
+.status-details {
+    margin-bottom: 20px;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: bold;
+    color: #fff;
+}
+
+.status-badge.running {
+    background-color: #2196F3;
+}
+
+.status-badge.idle {
+    background-color: #9E9E9E;
+}
+
+.update-statistics {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+}
+
+.update-history table {
+    margin-top: 10px;
+}
+
+.update-history th {
+    font-weight: bold;
+}
+
+/* Стили для прогресс-бара */
+.progress-bar-container {
+    width: 100%;
+    height: 20px;
+    background-color: #f5f5f5;
+    border-radius: 4px;
+    margin: 10px 0;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background-color: #4CAF50;
+    text-align: center;
+    line-height: 20px;
+    color: white;
+    transition: width 0.3s ease;
+}
+
+
+/* Стили для интерфейса призовых мест */
+.contest-prizes-container {
+    margin: 15px 0;
+}
+
+.prizes-table-container {
+    margin-bottom: 15px;
+}
+
+.prizes-table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-top: 10px;
+}
+
+.prizes-table th {
+    text-align: left;
+    padding: 10px;
+    background-color: #f1f1f1;
+}
+
+.prizes-table td {
+    padding: 12px 10px;
+    vertical-align: top;
+}
+
+.prize-place-column {
+    width: 80px;
+}
+
+.prize-amount-column {
+    width: 150px;
+}
+
+.prize-actions-column {
+    width: 80px;
+    text-align: center;
+}
+
+.prize-place {
+    font-weight: bold;
+    font-size: 16px;
+    text-align: center;
+    background: #f9f9f9;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    line-height: 30px;
+    margin: 0 auto;
+    display: block;
+}
+
+.prize-amount-input {
+    width: 100%;
+    padding: 8px;
+}
+
+.prize-description-input {
+    width: 100%;
+    min-height: 60px;
+    padding: 8px;
+}
+
+.remove-prize-button {
+    color: #a00;
+}
+
+.remove-prize-button:hover {
+    color: #dc3232;
+}
+
+.remove-prize-button .dashicons {
+    margin-top: 3px;
+}
+
+.prizes-actions {
+    margin-top: 15px;
+}
+
+.add-prize-button {
+    display: flex;
+    align-items: center;
+}
+
+.add-prize-button .dashicons {
+    margin-right: 5px;
+}
+
+/* Стили для первых трех мест */
+.prize-row:nth-child(1) .prize-place {
+    background: #FFD700;
+    color: #333;
+}
+
+.prize-row:nth-child(2) .prize-place {
+    background: #C0C0C0;
+    color: #333;
+}
+
+.prize-row:nth-child(3) .prize-place {
+    background: #CD7F32;
+    color: #fff;
+}
+
+
+/* Кнопка очистки истории */
+#clear_history {
+    margin-left: 10px;
+    color: #d63638;
+}
+
+#clear_history:hover {
+    background-color: #d63638;
+    color: #fff;
+    border-color: #d63638;
+}
+
+/* Стили для вкладки логов */
+.logs-container {
+    margin-top: 20px;
+}
+
+.logs-container h3 {
+    margin-bottom: 15px;
+}
+
+.log-entries {
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    padding: 15px;
+    max-height: 500px;
+    overflow-y: auto;
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.log-entries pre {
+    margin: 0;
+    white-space: pre-wrap;
+}
+
+/* Стили для прогресс-бара */
+.update-progress {
+    margin: 15px 0;
+}
+
+.progress-bar-container {
+    height: 20px;
+    background-color: #f5f5f5;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 15px;
+}
+
+.progress-bar {
+    height: 100%;
+    background-color: #0073aa;
+    transition: width 0.3s ease;
+}
+
+
+/* Стили для блока статуса автоматического обновления */
+.auto-update-status {
+    margin-top: 30px;
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+    padding: 15px 20px;
+    border-radius: 3px;
+}
+
+.auto-update-status h3 {
+    margin-top: 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.auto-update-status table {
+    margin-bottom: 15px;
+}
+
+.auto-update-status th {
+    text-align: left;
+    width: 200px;
+    padding: 10px 0;
+}
+
+.auto-update-status td {
+    padding: 10px 0;
+}
+
+.auto-update-status .status-enabled {
+    color: #46b450;
+    font-weight: bold;
+}
+
+.auto-update-status .status-disabled {
+    color: #dc3232;
+}
+
+.auto-update-status .status-running {
+    color: #0073aa;
+    font-weight: bold;
+}
+
+.auto-update-status .button {
+    margin-right: 10px;
+}
+
+/* Анимация для индикатора выполнения */
+.auto-update-status .status-running:after {
+    content: "...";
+    display: inline-block;
+    animation: ellipsis 1.5s infinite;
+    width: 20px;
+    text-align: left;
+}
+
+@keyframes ellipsis {
+    0% { content: "."; }
+    33% { content: ".."; }
+    66% { content: "..."; }
+}
+
+
+/* Стили для блока отладочной информации */
+.debug-info-container {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+}
+
+.debug-info-container h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 16px;
+    border-bottom: 1px solid #dee2e6;
+    padding-bottom: 10px;
+}
+
+.debug-info-content {
+    font-family: monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.debug-section {
+    margin-bottom: 15px;
+    padding: 10px;
+    background-color: #fff;
+    border: 1px solid #eee;
+    border-radius: 3px;
+}
+
+.debug-section h4 {
+    margin-top: 0;
+    margin-bottom: 5px;
+    font-size: 14px;
+}
+
+.debug-point {
+    margin-left: 15px;
+    font-size: 12px;
+}
+
+.debug-loading {
+    color: #6c757d;
+    font-style: italic;
+}
+
+.debug-hidden {
+    display: none;
+}
+
+.debug-error {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+.debug-warning {
+    color: #fd7e14;
+}
+
+.debug-info {
+    color: #17a2b8;
+}
+
+/* Стили для контейнера с прокруткой графика */
+.chart-scroll-container {
+    width: 100%;
+    overflow-x: auto;
+    margin-bottom: 20px;
+    position: relative;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+}
+
+.chart-container {
+    min-width: 100%;
+    height: 400px;
+    position: relative;
+}
+
+/* При большом количестве точек - расширяем контейнер */
+.chart-container.large-dataset {
+    min-width: 200%;
+}
+
+/* При очень большом количестве точек - расширяем еще больше */
+.chart-container.very-large-dataset {
+    min-width: 300%;
+}
+
+/* Стили для элементов управления графиком */
+.chart-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.chart-filter {
+    padding: 5px 10px;
+    min-width: 150px;
+}
+
+.chart-legend {
+    display: flex;
+    gap: 15px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+
+.legend-label {
+    font-weight: 500;
+}
+
+/* Скрываем горизонтальную полосу прокрутки, пока не наведем */
+.chart-scroll-container::-webkit-scrollbar {
+    height: 8px;
+}
+
+.chart-scroll-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.chart-scroll-container::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+.chart-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+
+/* Стили для графика счета */
+.chart-container {
+    position: relative;
+    margin-top: 20px;
+    background-color: #fff;
+    border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    padding: 10px;
+    overflow-x: auto; /* Добавляем горизонтальную прокрутку для очень широких графиков */
+}
+
+/* Гарантируем, что график будет занимать полную ширину контейнера */
+#accountChart {
+    width: 100% !important;
+    max-width: 100%;
+}
+
+.chart-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding: 5px 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+
+.chart-filter {
+    min-width: 150px;
+    padding: 6px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.chart-legend {
+    display: flex;
+    gap: 15px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    font-size: 12px;
+    margin-right: 10px;
+}
+
+.legend-color {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-right: 5px;
+    border-radius: 2px;
+}
+
+.legend-item.balance .legend-color {
+    background-color: #4285f4;
+}
+
+.legend-item.equity .legend-color {
+    background-color: #34a853;
+}
+
+.legend-item.history .legend-color {
+    background-color: #9e9e9e;
+}
+
+.chart-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255,255,255,0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10;
+    font-size: 14px;
+    color: #666;
+}
+
+/* Стили для скрытия элементов */
+.hidden {
+    display: none !important;
+}
+
+
+/* Стили для тултипа при наведении на статус */
+.status-indicator.disconnected {
+    cursor: help; /* Изменение курсора при наведении для индикации интерактивности */
+    position: relative;
+}
+
+/* Опционально: улучшенный кастомный тултип (вместо стандартного браузерного) */
+.custom-tooltip {
+    position: relative;
+    display: inline-block;
+}
+
+.custom-tooltip:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 0;
+    bottom: 100%;
+    min-width: 200px;
+    padding: 8px 10px;
+    background-color: #333;
+    color: #fff;
+    border-radius: 4px;
+    font-size: 12px;
+    z-index: 10;
+    white-space: normal;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+.custom-tooltip:hover::before {
+    content: '';
+    position: absolute;
+    left: 10px;
+    bottom: 100%;
+    border: 6px solid transparent;
+    border-top-color: #333;
+    transform: translateY(6px);
+    z-index: 10;
+}
+
+
+/* Стили для прогресс-бара обновления счетов */
+.progress-bar-container {
+    height: 20px;
+    background-color: #f0f0f0;
+    border-radius: 4px;
+    margin-top: 10px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background-color: #2271b1;
+    transition: width 0.5s ease;
+}
+
+/* Стили для уведомления о массовом обновлении */
+.bulk-update-notice {
+    margin: 15px 0;
+    padding: 10px 15px;
+    display: flex;
+    flex-direction: column;
+}
+
+.bulk-update-notice .button {
+    margin-left: 10px;
+}
+
+
+/* Стили для обновляемых строк */
+.updating-row {
+    background-color: #f0f8ff;
+    transition: background-color 0.3s ease;
+}
+
+/* Стили для индикатора обновления */
+.status-indicator.updating {
+    background-color: rgba(30,144,255,0.2);
+    color: #1e90ff;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* Стили для анимации вращения иконки */
+.status-indicator .dashicons.spin {
+    animation: spin 1.5s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Стили для уведомления о массовом обновлении */
+.bulk-update-notice {
+    margin: 15px 0;
+    padding: 10px 15px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.bulk-update-notice .button {
+    margin-left: 10px;
+}
+
+
+/* Стили для индикатора статуса подключения счета*/
+.status-indicator {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.status-indicator.connected {
+    background-color: rgba(40, 167, 69, 0.2);
+    color: #28a745;
+}
+
+.status-indicator.disconnected {
+    background-color: rgba(220, 53, 69, 0.2);
+    color: #dc3545;
+}
+
+/**
+ * Animation styles for highlighting new elements
+ * Fades from yellow to transparent over 3 seconds
+ */
+.highlight-new {
+    animation: highlight 3s;
+}
+
+@keyframes highlight {
+    0% { background-color: #ffeb3b; }
+    100% { background-color: transparent; }
+}
+
+/**
+ * Animation styles for highlighting deleted elements
+ * Fades from light red to dark red over 1 second
+ */
+.highlight-delete {
+    animation: delete-highlight 1s;
+}
+
+@keyframes delete-highlight {
+    from { background-color: #ffebee; }
+    to { background-color: #ff5252; }
+}
+/**
+ * Styles for account information sections and action buttons
+ * Provides consistent spacing and alignment for account pages
+ * - Account wrapper has vertical margin
+ * - Sections have bottom margin and heading spacing
+ * - Action buttons have consistent spacing and icon alignment
+ */
+
+.account-info-wrapper {
+    margin: 20px 0;
+}
+.change-percent {
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.change-percent.positive {
+    color: #28a745;
+    background-color: #e3f9ec;
+}
+
+.change-percent.negative {
+    color: #dc3545;
+    background-color: #fbe7e9;
+}
+
+.account-section {
+    margin-bottom: 30px;
+    background: #fff;
+    padding: 20px;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+}
+.account-section h2 {
+    margin-bottom: 15px;
+}
+
+.actions .button {
+    margin-right: 5px;
+}
+
+.actions .button .dashicons {
+    margin-top: 3px;
+}
+/**
+ * Styles for history table filters and loading state
+ * Provides consistent styling for:
+ * - Filter container with background and borders
+ * - Individual filter spacing and minimum width
+ * - Loading overlay with spinner animation
+ * - Proper positioning of loading indicator
+ */
+
+.history-filters {
+    margin: 20px 0;
+    padding: 10px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+}
+
+.history-filter {
+    margin-right: 10px;
+    min-width: 150px;
+}
+
+#history_table_wrapper.loading {
+    position: relative;
+    min-height: 100px;
+}
+
+#history_table_wrapper.loading:after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255,255,255,0.8) url(../images/loading.gif) center no-repeat;
+}
+/**
+ * Styles for spinning dashicons and status updates
+ * Provides:
+ * - Spinning animation for dashicons class
+ * - Keyframe animation definition for 360 degree rotation
+ * - Status update message positioning and alignment
+ */
+
+.dashicons.spin {
+    animation: spin 1s infinite linear;
+}
+
+@keyframes spin {
+    from {transform: rotate(0deg);}
+    to {transform: rotate(360deg);}
+}
+
+#update_status {
+    margin-left: 10px;
+    display: inline-block;
+    vertical-align: middle;
+}
+/**
+ * Styles for order types and profit indicators
+ * Provides:
+ * - Green color styling for buy orders and positive profits
+ * - Red color styling for sell orders and negative profits
+ * - Bold text for all order and profit indicators
+ * - Standard padding for table cells
+ */
+
+.order-buy {
+    color: #28a745;
+    font-weight: bold;
+}
+
+.order-sell {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+.profit-positive {
+    color: #28a745;
+    font-weight: bold;
+}
+
+.profit-negative {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+.widefat td {
+    padding: 8px;
+}
+
+/* Стили для отображения статуса подключения */
+.status-connected {
+    display: inline-block;
+    padding: 3px 8px;
+    color: #2e7d32;
+    background-color: #e8f5e9;
+    border-radius: 3px;
+    font-weight: bold;
+}
+
+.status-disconnected {
+    display: inline-block;
+    padding: 3px 8px;
+    color: #c62828;
+    background-color: #ffebee;
+    border-radius: 3px;
+    font-weight: bold;
+}
+
+.error-details {
+    margin-top: 8px;
+    padding: 10px;
+    background-color: #fff8e1;
+    border-left: 4px solid #ffa000;
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+
+/* Стили для скринридеров и доступности */
+.screen-reader-text {
+    border: 0;
+    clip: rect(1px, 1px, 1px, 1px);
+    clip-path: inset(50%);
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    padding: 0;
+    position: absolute;
+    width: 1px;
+    word-wrap: normal !important;
+}
+
+.screen-reader-text:focus {
+    background-color: #f1f1f1;
+    border-radius: 3px;
+    box-shadow: 0 0 2px 2px rgba(0, 0, 0, 0.6);
+    clip: auto !important;
+    clip-path: none;
+    color: #21759b;
+    display: block;
+    font-size: 14px;
+    font-weight: bold;
+    height: auto;
+    left: 5px;
+    line-height: normal;
+    padding: 15px 23px 14px;
+    text-decoration: none;
+    top: 5px;
+    width: auto;
+    z-index: 100000;
+}
