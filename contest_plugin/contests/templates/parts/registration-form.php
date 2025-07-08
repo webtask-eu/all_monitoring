@@ -97,107 +97,21 @@ if (!$is_edit_mode) {
         <div class="form-group">
             <label for="password">Пароль счета</label>
             <input type="text" id="password" name="password"
-                value="<?php echo $is_edit_mode ? esc_attr($account->password) : ''; ?>" <?php echo $is_edit_mode ? '' : 'required'; ?>>
+                value="<?php echo $is_edit_mode ? str_replace('"', '&quot;', $account->password) : ''; ?>" <?php echo $is_edit_mode ? '' : 'required'; ?>>
             <?php if ($is_edit_mode): ?>
                 <div class="field-hint">Оставьте пустым, если не хотите менять пароль</div>
             <?php endif; ?>
         </div>
 
-        <!-- Выбор брокера -->
-        <div class="form-group">
-            <label for="broker">Брокер</label>
-            <?php
-            // Получаем список брокеров
-            $brokers_list = array();
-            
-            if (class_exists('FTTrader_Brokers_Platforms')) {
-                $brokers = FTTrader_Brokers_Platforms::get_brokers();
-                foreach ($brokers as $broker) {
-                    $brokers_list[$broker->id] = $broker->name;
-                }
-            }
-            
-            $selected_broker_id = 0;
-            if ($is_edit_mode && !empty($account->broker)) {
-                // Находим брокера по имени, если редактируем существующий счет
-                foreach ($brokers as $broker) {
-                    if ($broker->name === $account->broker) {
-                        $selected_broker_id = $broker->id;
-                        break;
-                    }
-                }
-            }
-            ?>
-            
-            <select id="broker" name="broker" required>
-                <option value="">Выберите брокера</option>
-                <?php foreach ($brokers_list as $broker_id => $broker_name): ?>
-                    <option value="<?php echo esc_attr($broker_id); ?>" <?php echo ($selected_broker_id == $broker_id) ? 'selected' : ''; ?>>
-                        <?php echo esc_html($broker_name); ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-
-        <!-- Выбор платформы -->
-        <div class="form-group">
-            <label for="platform">Торговая платформа</label>
-            <select id="platform" name="platform" required disabled>
-                <option value="">Сначала выберите брокера</option>
-                <?php
-                // Предварительно загружаем список платформ в режиме редактирования
-                if ($is_edit_mode && !empty($account->broker) && !empty($selected_broker_id)) {
-                    // Получаем список платформ для выбранного брокера
-                    $platforms = FTTrader_Brokers_Platforms::get_broker_platforms($selected_broker_id);
-                    if (!empty($platforms)) {
-                        $selected_platform_id = 0;
-                        
-                        // Находим платформу по терминалу
-                        $terminal_to_platform = array(
-                            'metatrader4' => 'MetaTrader 4',
-                            'metatrader5' => 'MetaTrader 5'
-                        );
-                        
-                        $platform_name_to_find = isset($terminal_to_platform[$account->terminal]) 
-                            ? $terminal_to_platform[$account->terminal] 
-                            : $account->terminal;
-                        
-                        foreach ($platforms as $platform) {
-                            if (stripos($platform->name, $platform_name_to_find) !== false) {
-                                $selected_platform_id = $platform->id;
-                                echo '<option value="' . esc_attr($platform->id) . '" selected>' . esc_html($platform->name) . '</option>';
-                            } else {
-                                echo '<option value="' . esc_attr($platform->id) . '">' . esc_html($platform->name) . '</option>';
-                            }
-                        }
-                        
-                        // Разблокируем список, если есть данные
-                        echo '<script>jQuery(document).ready(function($){ $("#platform").prop("disabled", false); });</script>';
-                    }
-                }
-                ?>
-            </select>
-        </div>
-
         <!-- Выбор сервера -->
         <div class="form-group">
             <label for="server">Сервер</label>
-            <select id="server" name="server" required disabled>
-                <option value="">Сначала выберите платформу</option>
+            <select id="server" name="server" required>
+                <option value="">Загрузка серверов...</option>
                 <?php
-                // Предварительно загружаем список серверов в режиме редактирования
-                if ($is_edit_mode && !empty($account->broker) && !empty($selected_broker_id) && !empty($selected_platform_id)) {
-                    // Получаем список серверов для выбранных брокера и платформы
-                    $servers = FTTrader_Brokers_Platforms::get_broker_servers($selected_broker_id, $selected_platform_id);
-                    if (!empty($servers)) {
-                        foreach ($servers as $server) {
-                            $selected = ($account->server === $server->server_address) ? 'selected' : '';
-                            echo '<option value="' . esc_attr($server->server_address) . '" ' . $selected . '>' . esc_html($server->name) . '</option>';
-                        }
-                        
-                        // Разблокируем список, если есть данные
-                        echo '<script>jQuery(document).ready(function($){ $("#server").prop("disabled", false); });</script>';
-                    }
+                // В режиме редактирования предзагружаем список серверов
+                if ($is_edit_mode && !empty($account->server)) {
+                    echo '<option value="' . esc_attr($account->server) . '" selected>' . esc_html($account->server) . '</option>';
                 }
                 ?>
             </select>
@@ -241,117 +155,87 @@ if (!$is_edit_mode) {
     }
 
     jQuery(document).ready(function($) {
-        console.log('[EMERGENCY] Аварийный JavaScript для формы загружен');
+        console.log('[DEBUG] JavaScript для упрощенной формы загружен');
         
-        // Функция для активации выпадающих списков на странице
-        function emergencyActivateDropdowns() {
-            // Проверка наличия элементов и вывод информации в консоль
-            console.log('[EMERGENCY] Проверка элементов формы:', {
+        // Функция для загрузки серверов конкурса
+        function loadContestServers() {
+            console.log('[DEBUG] Проверка элементов формы:', {
                 'Форма найдена': $('#contest-account-form').length > 0,
-                'Брокер найден': $('#broker').length > 0,
-                'Платформа найдена': $('#platform').length > 0,
                 'Сервер найден': $('#server').length > 0,
-                'Терминал найден': $('#terminal').length > 0
+                'Contest ID': $('#contest_id').val()
             });
             
-            // Выбор брокера
-            $('#broker').off('change').on('change', function() {
-                console.log('[EMERGENCY] Выбран брокер:', $(this).val());
-                var brokerId = $(this).val();
-                var platformSelect = $('#platform');
-                
-                // Сбрасываем выпадающие списки
-                platformSelect.empty().append('<option value="">Загрузка платформ...</option>').prop('disabled', true);
-                $('#server').empty().append('<option value="">Сначала выберите платформу</option>').prop('disabled', true);
-                
-                if (!brokerId) return;
-                
-                // Запрашиваем платформы
-                $.ajax({
-                    url: '<?php echo admin_url('admin-ajax.php'); ?>',
-                    type: 'POST',
-                    data: {
-                        action: 'get_broker_platforms',
-                        nonce: '<?php echo wp_create_nonce('ft_contest_nonce'); ?>',
-                        broker_id: brokerId
-                    },
-                    success: function(response) {
-                        console.log('[EMERGENCY] Ответ платформы:', response);
-                        platformSelect.empty().append('<option value="">Выберите платформу</option>');
+            var contestId = $('#contest_id').val();
+            var serverSelect = $('#server');
+            
+            if (!contestId) {
+                console.error('[ERROR] Contest ID не найден');
+                serverSelect.empty().append('<option value="">Ошибка: ID конкурса не определен</option>');
+                return;
+            }
+            
+            // Проверяем, не в режиме ли редактирования
+            var isEditMode = $('#account_id').length > 0;
+            if (isEditMode && serverSelect.find('option:selected').val()) {
+                console.log('[DEBUG] Режим редактирования, сервер уже выбран');
+                return;
+            }
+            
+            // Загружаем серверы для конкурса
+            $.ajax({
+                url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                type: 'POST',
+                data: {
+                    action: 'get_contest_servers',
+                    nonce: '<?php echo wp_create_nonce('ft_contest_nonce'); ?>',
+                    contest_id: contestId
+                },
+                success: function(response) {
+                    console.log('[DEBUG] Ответ серверы конкурса:', response);
+                    
+                    // Сохраняем выбранное значение если было
+                    var selectedValue = serverSelect.val();
+                    
+                    serverSelect.empty().append('<option value="">Выберите сервер</option>');
+                    
+                    if (response.success && response.data.length > 0) {
+                        $.each(response.data, function(i, server) {
+                            serverSelect.append($('<option></option>')
+                                .val(server.server_address)
+                                .text(server.name)
+                            );
+                        });
                         
-                        if (response.success && response.data.length > 0) {
-                            $.each(response.data, function(i, platform) {
-                                platformSelect.append($('<option></option>').val(platform.id).text(platform.name));
-                            });
-                            platformSelect.prop('disabled', false);
-                        } else {
-                            platformSelect.append('<option value="" disabled>Нет платформ</option>');
+                        // Восстанавливаем выбранное значение
+                        if (selectedValue) {
+                            serverSelect.val(selectedValue);
                         }
-                    },
-                    error: function(xhr, status, error) {
-                        console.error('[EMERGENCY] Ошибка загрузки платформ:', error);
-                        platformSelect.empty().append('<option value="">Ошибка загрузки</option>');
+                        
+                        // Устанавливаем значение terminal как "metatrader4" по умолчанию
+                        if (!$('#terminal').val()) {
+                            $('#terminal').val('metatrader4');
+                        }
+                        
+                        console.log('[DEBUG] Серверы конкурса загружены успешно');
+                    } else {
+                        serverSelect.append('<option value="" disabled>Нет доступных серверов для этого конкурса</option>');
+                        console.warn('[WARNING] Для конкурса не настроены серверы');
                     }
-                });
-            });
-            
-            // Выбор платформы
-            $('#platform').off('change').on('change', function() {
-                console.log('[EMERGENCY] Выбрана платформа:', $(this).val());
-                var platformId = $(this).val();
-                var brokerId = $('#broker').val();
-                var serverSelect = $('#server');
-                var platformText = $(this).find('option:selected').text();
-                
-                // Устанавливаем терминал на основе платформы
-                if (platformText.includes('MetaTrader 4') || platformText.includes('MT4')) {
-                    $('#terminal').val('metatrader4');
-                } else if (platformText.includes('MetaTrader 5') || platformText.includes('MT5')) {
-                    $('#terminal').val('metatrader5');
-                } else {
-                    $('#terminal').val(platformText.toLowerCase().replace(/\s+/g, ''));
+                },
+                error: function(xhr, status, error) {
+                    console.error('[ERROR] Ошибка загрузки серверов конкурса:', error);
+                    serverSelect.empty().append('<option value="">Ошибка загрузки серверов</option>');
                 }
-                
-                // Сбрасываем список серверов
-                serverSelect.empty().append('<option value="">Загрузка серверов...</option>').prop('disabled', true);
-                
-                if (!platformId || !brokerId) return;
-                
-                // Запрашиваем серверы
-                $.ajax({
-                    url: '<?php echo admin_url('admin-ajax.php'); ?>',
-                    type: 'POST',
-                    data: {
-                        action: 'get_broker_servers',
-                        nonce: '<?php echo wp_create_nonce('ft_contest_nonce'); ?>',
-                        broker_id: brokerId,
-                        platform_id: platformId
-                    },
-                    success: function(response) {
-                        console.log('[EMERGENCY] Ответ серверы:', response);
-                        serverSelect.empty().append('<option value="">Выберите сервер</option>');
-                        
-                        if (response.success && response.data.length > 0) {
-                            $.each(response.data, function(i, server) {
-                                serverSelect.append($('<option></option>').val(server.server_address).text(server.name));
-                            });
-                            serverSelect.prop('disabled', false);
-                        } else {
-                            serverSelect.append('<option value="" disabled>Нет серверов</option>');
-                        }
-                    },
-                    error: function(xhr, status, error) {
-                        console.error('[EMERGENCY] Ошибка загрузки серверов:', error);
-                        serverSelect.empty().append('<option value="">Ошибка загрузки</option>');
-                    }
-                });
             });
         }
         
-        // Безусловно активируем аварийные обработчики через короткое время
+        // Загружаем серверы сразу при загрузке страницы
+        loadContestServers();
+        
+        // Также загружаем через короткое время на случай медленной загрузки
         setTimeout(function() {
-            console.log('[EMERGENCY] Принудительная активация аварийных обработчиков');
-            emergencyActivateDropdowns();
+            console.log('[DEBUG] Повторная загрузка серверов');
+            loadContestServers();
         }, 500);
     });
 </script>

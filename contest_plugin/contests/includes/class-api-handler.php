@@ -344,15 +344,20 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
 
     $url = $api_url . '?' . http_build_query($params);
     
+    // Получаем настройки автоматического обновления для таймаута
+    $auto_update_settings = get_option('fttrader_auto_update_settings', []);
+    $api_timeout = isset($auto_update_settings['fttrader_api_timeout']) ? 
+        intval($auto_update_settings['fttrader_api_timeout']) : 30; // По умолчанию 30 секунд
+    
     // Добавляем подробную информацию о запросе в лог
     ft_api_log([
         'url_length' => strlen($url),
         'url_base' => parse_url($url, PHP_URL_SCHEME) . '://' . parse_url($url, PHP_URL_HOST) . parse_url($url, PHP_URL_PATH),
-        'timeout' => 30
+        'timeout' => $api_timeout
     ], "Отправка запроса на API", "info");
     
-    // Увеличиваем таймаут для получения данных
-    $response = wp_remote_get($url, ['timeout' => 30, 'sslverify' => false]);
+    // Отправляем запрос с настраиваемым таймаутом
+    $response = wp_remote_get($url, ['timeout' => $api_timeout, 'sslverify' => false]);
 
     if (is_wp_error($response)) {
         $error_message = $response->get_error_message();
@@ -554,6 +559,8 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
             'i_prof' => $account->profit,
             'leverage' => $account->leverage,
             'i_ordtotal' => $account->orders_total,
+            'h_count' => $account->orders_history_total,
+            'pass' => $account->password,
             'i_firma' => $account->broker,
             'i_fio' => $account->name,
             'i_dr' => $account->account_type,
@@ -566,9 +573,27 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
         $orders_handler = new Account_Orders();
         $old_data['active_orders_volume'] = $orders_handler->get_active_orders_volume($account_id);
 
+        // Подготавливаем новые данные для отслеживания истории
+        $new_data_for_history = $data['acc'];
+        
+        // Добавляем h_count из statistics если есть
+        if (isset($data['statistics']['ACCOUNT_ORDERS_HISTORY_TOTAL'])) {
+            $new_data_for_history['h_count'] = $data['statistics']['ACCOUNT_ORDERS_HISTORY_TOTAL'];
+        }
+
+        // Добавляем новый пароль если он был изменен
+        if (isset($account_data['password']) && !empty($account_data['password'])) {
+            $new_data_for_history['pass'] = $account_data['password'];
+        }
+
+        // Маппим i_level в leverage для истории изменений
+        if (isset($new_data_for_history['i_level'])) {
+            $new_data_for_history['leverage'] = $new_data_for_history['i_level'];
+        }
+
         // Отслеживаем изменения для существующих счетов
         $history = new Account_History();
-        $history->track_changes($account_id, $old_data, $data['acc']);
+        $history->track_changes($account_id, $old_data, $new_data_for_history);
     }
 
     // Получаем IP пользователя и страну только для новых счетов
@@ -603,7 +628,7 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
         'equity' => ['acc', 'i_equi'],
         'margin' => ['acc', 'i_marg'],
         'profit' => ['acc', 'i_prof'],
-        'leverage' => ['acc', 'leverage'],
+        'leverage' => ['acc', 'i_level'],
         'orders_total' => ['acc', 'i_ordtotal'],
         'orders_history_total' => ['statistics', 'ACCOUNT_ORDERS_HISTORY_TOTAL'],
         'orders_history_profit' => ['statistics', 'ACCOUNT_ORDERS_HISTORY_PROFIT'],
@@ -635,42 +660,50 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
                 // Проверка на подозрительные нули - если соединение успешно, но все финансовые показатели равны 0
                 $suspicious_zeros = false;
                 
-                // ОТЛАДКА v1.2.0 - Упрощенная диагностика проблемы нулей
+                // Исправленная логика v1.2.1 - корректная обработка нулей с учетом типа поля
                 if ($value == 0) {
-                    // Блок 1: Нули приходят из API при статусе connected
-                    if (isset($data['acc']['connection_status']) && $data['acc']['connection_status'] === 'connected') {
-                        $db_data[$db_key] = -1; // Блок 1: Нули из API при connected статусе
-                        error_log("[API-HANDLER] ОТЛАДКА v1.2.0: Блок 1 (-1): нули из API при connected статусе для поля $db_key (account_id: {$account_id})");
-                        continue;
-                    }
-                    
-                    // Обычная обработка для других случаев
-                    if (!$is_new) {
-                        $old_value = $account->{$db_key};
-                        if ($old_value !== null && $old_value !== '' && floatval($old_value) != 0) {
-                            // Если баланс действительно мог стать нулем, используем новое значение
-                            // В других случаях предпочитаем старое значение
-                            if (($db_key == 'balance' || $db_key == 'equity') && $account->connection_status == 'connected') {
-                                error_log("[API-HANDLER] Обнаружено изменение с $old_value на 0 для поля $db_key (account_id: {$account_id})");
-                                // Для демо-счетов
-                                if (isset($account->account_type) && $account->account_type == 'demo') {
-                                    $db_data[$db_key] = -1; // Блок 1: Нули для демо счетов
-                                    error_log("[API-HANDLER] ОТЛАДКА v1.2.0: Блок 1 (-1): нули для демо-счета для поля $db_key (account_id: {$account_id})");
-                                } else {
-                                    $db_data[$db_key] = $old_value;
-                                    error_log("[API-HANDLER] Для реального счета используем старое значение $old_value для поля $db_key (account_id: {$account_id})");
-                                }
-                            } else {
-                                $db_data[$db_key] = $old_value;
-                                error_log("[API-HANDLER] Используем старое значение $old_value для поля $db_key (account_id: {$account_id})");
-                            }
+                    // Для orders_total (количество ордеров) никогда не используем отрицательные значения
+                    if ($db_key == 'orders_total') {
+                        // Количество ордеров может быть 0 - это нормально
+                        $db_data[$db_key] = 0;
+                        error_log("[API-HANDLER] Установлено 0 ордеров для поля $db_key (account_id: {$account_id})");
+                    } else {
+                        // Для других финансовых полей применяем отладочную логику
+                        // Блок 1: Нули приходят из API при статусе connected
+                        if (isset($data['acc']['connection_status']) && $data['acc']['connection_status'] === 'connected') {
+                            $db_data[$db_key] = -1; // Блок 1: Нули из API при connected статусе
+                            error_log("[API-HANDLER] ОТЛАДКА v1.2.1: Блок 1 (-1): нули из API при connected статусе для поля $db_key (account_id: {$account_id})");
                             continue;
                         }
+                        
+                        // Обычная обработка для других случаев
+                        if (!$is_new) {
+                            $old_value = $account->{$db_key};
+                            if ($old_value !== null && $old_value !== '' && floatval($old_value) != 0) {
+                                // Если баланс действительно мог стать нулем, используем новое значение
+                                // В других случаях предпочитаем старое значение
+                                if (($db_key == 'balance' || $db_key == 'equity') && $account->connection_status == 'connected') {
+                                    error_log("[API-HANDLER] Обнаружено изменение с $old_value на 0 для поля $db_key (account_id: {$account_id})");
+                                    // Для демо-счетов
+                                    if (isset($account->account_type) && $account->account_type == 'demo') {
+                                        $db_data[$db_key] = -1; // Блок 1: Нули для демо счетов
+                                        error_log("[API-HANDLER] ОТЛАДКА v1.2.1: Блок 1 (-1): нули для демо-счета для поля $db_key (account_id: {$account_id})");
+                                    } else {
+                                        $db_data[$db_key] = $old_value;
+                                        error_log("[API-HANDLER] Для реального счета используем старое значение $old_value для поля $db_key (account_id: {$account_id})");
+                                    }
+                                } else {
+                                    $db_data[$db_key] = $old_value;
+                                    error_log("[API-HANDLER] Используем старое значение $old_value для поля $db_key (account_id: {$account_id})");
+                                }
+                                continue;
+                            }
+                        }
+                        
+                        // Блок 2: Нет старого значения или оно тоже 0
+                        $db_data[$db_key] = -2; // Блок 2: Отсутствуют старые значения
+                        error_log("[API-HANDLER] ОТЛАДКА v1.2.1: Блок 2 (-2): отсутствуют старые значения для поля $db_key (account_id: {$account_id})");
                     }
-                    
-                    // Блок 2: Нет старого значения или оно тоже 0
-                    $db_data[$db_key] = -2; // Блок 2: Отсутствуют старые значения
-                    error_log("[API-HANDLER] ОТЛАДКА v1.2.0: Блок 2 (-2): отсутствуют старые значения для поля $db_key (account_id: {$account_id})");
                 } else {
                     // Если значение не 0, используем его
                     $db_data[$db_key] = $value;
@@ -698,12 +731,12 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
                     'margin' => -2, // Блок 2: Поле отсутствует в API
                     'profit' => -2, // Блок 2: Поле отсутствует в API
                     'leverage' => -2, // Блок 2: Поле отсутствует в API
-                    'orders_total' => -2, // Блок 2: Поле отсутствует в API
+                    'orders_total' => 0, // Количество ордеров не может быть отрицательным
                     'orders_history_total' => -2, // Блок 2: Поле отсутствует в API
                     'orders_history_profit' => -2 // Блок 2: Поле отсутствует в API
                 ];
                 $db_data[$db_key] = $default_values[$db_key];
-                error_log("[API-HANDLER] ОТЛАДКА v1.2.0: Блок 2 (-2): поле $db_key отсутствует в API (account_id: {$account_id})");
+                error_log("[API-HANDLER] ОТЛАДКА v1.2.1: Блок 2 (корректное значение): поле $db_key отсутствует в API (account_id: {$account_id})");
             } else {
                 // Для остальных полей логируем отсутствие данных
                 error_log("[API-HANDLER] Не получено значение для поля $db_key (account_id: {$account_id}) — поле не будет обновлено!");
@@ -783,6 +816,9 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
             }
             
             ft_api_log("Новый счет успешно создан, ID: " . $account_id, "Account Created", "info");
+            
+            // Создаем записи начальных значений в истории изменений для нового счета
+            create_initial_history_records($account_id, $db_data);
             
             // Обрабатываем историю сделок, если есть
             if (isset($data['open_orders']) && is_array($data['open_orders'])) {
@@ -920,7 +956,7 @@ function fttradingapi_register_account()
 {
     $result = process_trading_account([
         'account_number' => !empty($_POST['account_number']) ? sanitize_text_field($_POST['account_number']) : '',
-        'password' => !empty($_POST['password']) ? sanitize_text_field($_POST['password']) : '',
+        'password' => !empty($_POST['password']) ? wp_unslash($_POST['password']) : '',
         'server' => !empty($_POST['server']) ? sanitize_text_field($_POST['server']) : '',
         'terminal' => !empty($_POST['terminal']) ? sanitize_text_field($_POST['terminal']) : ''
     ], null, intval($_POST['contest_id']));
@@ -944,7 +980,7 @@ function fttradingapi_edit_account()
     }
 
     $result = process_trading_account([
-        'password' => !empty($_POST['password']) ? sanitize_text_field($_POST['password']) : '',
+        'password' => !empty($_POST['password']) ? wp_unslash($_POST['password']) : '',
         'server' => !empty($_POST['server']) ? sanitize_text_field($_POST['server']) : '',
         'terminal' => !empty($_POST['terminal']) ? sanitize_text_field($_POST['terminal']) : '',
         'contest_id' => !empty($_POST['contest_id']) ? intval($_POST['contest_id']) : 0 // Добавляем конкурс
@@ -1060,9 +1096,20 @@ function fttradingapi_load_account_history()
         // Меняем значение по умолчанию с 'all' на 'day'
         $period = isset($_POST['period']) ? sanitize_text_field($_POST['period']) : 'day';
         $sort = isset($_POST['sort']) ? sanitize_text_field($_POST['sort']) : 'desc';
+        $page = isset($_POST['page']) ? intval($_POST['page']) : 1;
+        $per_page = isset($_POST['per_page']) ? intval($_POST['per_page']) : 10;
 
         $history = new Account_History();
-        $changes = $history->get_filtered_history($account_id, $field, $period, $sort);
+        $result = $history->get_filtered_history($account_id, $field, $period, $sort, $page, $per_page);
+        
+        // Передаем массив изменений и информацию о пагинации в шаблон
+        $changes = $result['results'];
+        $pagination = [
+            'total_items' => $result['total_items'],
+            'total_pages' => $result['total_pages'],
+            'current_page' => $result['current_page'],
+            'per_page' => $result['per_page']
+        ];
 
         include(plugin_dir_path(__FILE__) . '../admin/views/history-table.php');
         wp_die();
@@ -1072,6 +1119,7 @@ function fttradingapi_load_account_history()
 }
 
 add_action('wp_ajax_load_account_history', 'fttradingapi_load_account_history');
+add_action('wp_ajax_nopriv_load_account_history', 'fttradingapi_load_account_history');
 
 /**
  * AJAX-обработчик для создания очереди обновления счетов
@@ -1107,6 +1155,20 @@ function fttradingapi_create_update_queue()
         foreach ($initial_processing as $account_id) {
             // Запускаем обновление с передачей ID очереди для логирования
             process_trading_account([], $account_id, $contest_id, $queue_id);
+
+            // === NEW: сразу отмечаем счет в статусе очереди ===
+            $contest_prefix = $contest_id ? $contest_id : 'global';
+            $status_option = 'contest_accounts_update_status_' . $contest_prefix . '_' . $queue_id;
+            $status_data   = get_option($status_option, []);
+            if (isset($status_data['accounts'][$account_id])) {
+                $status_data['accounts'][$account_id]['status']   = 'success';
+                $status_data['accounts'][$account_id]['message']  = 'Initial batch auto-update';
+                $status_data['accounts'][$account_id]['end_time'] = time();
+                $status_data['completed']++;
+                $status_data['success']++;
+                $status_data['last_update'] = time();
+                update_option($status_option, $status_data);
+            }
         }
     }
     
@@ -1243,3 +1305,579 @@ add_action('wp_ajax_clear_order_history', 'fttradingapi_clear_order_history');
 // Регистрация AJAX-обработчиков
 add_action('wp_ajax_fttradingapi_create_update_queue', 'fttradingapi_create_update_queue');
 add_action('wp_ajax_fttradingapi_get_update_status', 'fttradingapi_get_update_status');
+
+/**
+ * AJAX-обработчик для принудительного перезапуска зависшей очереди (диагностика)
+ */
+function fttradingapi_restart_queue_diagnostics()
+{
+    check_ajax_referer('ft_trader_nonce', 'nonce');
+
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Недостаточно прав']);
+    }
+
+    $queue_id = isset($_POST['queue_id']) ? sanitize_text_field($_POST['queue_id']) : '';
+    $contest_id = isset($_POST['contest_id']) ? intval($_POST['contest_id']) : null;
+    
+    if (empty($queue_id)) {
+        wp_send_json_error(['message' => 'ID очереди не указан']);
+    }
+    
+    error_log("=== ПРИНУДИТЕЛЬНЫЙ ПЕРЕЗАПУСК ОЧЕРЕДИ ===");
+    error_log("Queue ID: {$queue_id}");
+    error_log("Contest ID: " . ($contest_id ? $contest_id : 'NULL'));
+    error_log("Инициатор: " . wp_get_current_user()->user_login);
+    error_log("Время: " . date('Y-m-d H:i:s'));
+    
+    require_once plugin_dir_path(__FILE__) . 'class-account-updater.php';
+    
+    // Получаем статус очереди
+    $status = Account_Updater::get_status($contest_id, $queue_id);
+    
+    if ($status['is_running']) {
+        error_log("ОШИБКА: Очередь {$queue_id} все еще активна, перезапуск невозможен");
+        wp_send_json_error(['message' => 'Очередь все еще активна. Перезапуск возможен только для зависших очередей.']);
+    }
+    
+    if (empty($status) || $status['message'] === 'Очередь не найдена') {
+        error_log("ОШИБКА: Очередь {$queue_id} не найдена в системе");
+        wp_send_json_error(['message' => 'Очередь не найдена в системе']);
+    }
+    
+    // Принудительно устанавливаем статус "активна" и сбрасываем счетчики
+    $contest_prefix = $contest_id ? $contest_id : 'global';
+    $status_option = 'contest_accounts_update_status_' . $contest_prefix . '_' . $queue_id;
+    $queue_option = 'contest_accounts_update_queue_' . $contest_prefix . '_' . $queue_id;
+    
+    // Получаем текущий статус
+    $current_status = get_option($status_option, []);
+    
+    if (empty($current_status)) {
+        error_log("ОШИБКА: Статус очереди {$queue_id} не найден в опциях WordPress");
+        wp_send_json_error(['message' => 'Статус очереди не найден в базе данных']);
+    }
+    
+    // Подсчитываем необработанные счета
+    $unprocessed_accounts = [];
+    if (isset($current_status['accounts']) && is_array($current_status['accounts'])) {
+        foreach ($current_status['accounts'] as $account_id => $account_status) {
+            if ($account_status['status'] === 'pending' || $account_status['status'] === 'processing') {
+                $unprocessed_accounts[] = intval($account_id);
+            }
+        }
+    }
+    
+    error_log("Найдено необработанных счетов: " . count($unprocessed_accounts));
+    error_log("ID необработанных счетов: " . implode(', ', $unprocessed_accounts));
+    
+    if (empty($unprocessed_accounts)) {
+        error_log("ПРЕДУПРЕЖДЕНИЕ: Нет необработанных счетов, но очередь помечена как зависшая");
+        wp_send_json_error(['message' => 'В очереди нет счетов для повторной обработки']);
+    }
+    
+    // Сбрасываем статус для необработанных счетов
+    foreach ($unprocessed_accounts as $account_id) {
+        $current_status['accounts'][$account_id]['status'] = 'pending';
+        $current_status['accounts'][$account_id]['message'] = 'Перезапущено для диагностики';
+        $current_status['accounts'][$account_id]['start_time'] = 0;
+        $current_status['accounts'][$account_id]['end_time'] = 0;
+    }
+    
+    // Пересчитываем статистику
+    $completed_count = 0;
+    $success_count = 0;
+    $failed_count = 0;
+    
+    foreach ($current_status['accounts'] as $account_status) {
+        if ($account_status['status'] === 'success' || $account_status['status'] === 'failed') {
+            $completed_count++;
+            if ($account_status['status'] === 'success') {
+                $success_count++;
+            } else {
+                $failed_count++;
+            }
+        }
+    }
+    
+    // Обновляем статус очереди
+    $current_status['is_running'] = true;
+    $current_status['completed'] = $completed_count;
+    $current_status['success'] = $success_count;
+    $current_status['failed'] = $failed_count;
+    $current_status['last_update'] = time();
+    $current_status['current_batch'] = floor($completed_count / 2); // Предполагаем размер пакета 2
+    $current_status['timeout'] = false;
+    $current_status['message'] = 'Перезапущено для диагностики';
+    
+    // Добавляем информацию о перезапуске
+    $current_status['restart_info'] = [
+        'restart_time' => time(),
+        'restart_user' => wp_get_current_user()->user_login,
+        'restarted_accounts' => count($unprocessed_accounts)
+    ];
+    
+    update_option($status_option, $current_status);
+    
+    // Обновляем очередь счетов (оставляем только необработанные)
+    update_option($queue_option, $unprocessed_accounts);
+    
+    // Регистрируем очередь как активную
+    $contest_key = 'contest_active_queues_' . ($contest_id ? $contest_id : 'global');
+    $active_queues = get_option($contest_key, []);
+    $active_queues[$queue_id] = [
+        'status_option' => $status_option,
+        'start_time' => time()
+    ];
+    update_option($contest_key, $active_queues);
+    
+    // Планируем выполнение через 10 секунд
+    $scheduled = wp_schedule_single_event(time() + 10, 'process_accounts_update_batch', [$contest_id, $queue_id]);
+    
+    error_log("Очередь {$queue_id} перезапущена:");
+    error_log("- Запланирована задача: " . ($scheduled ? 'YES' : 'NO'));
+    error_log("- Необработанных счетов: " . count($unprocessed_accounts));
+    error_log("- Новый статус: is_running=true");
+    
+    // Принудительный запуск cron
+    spawn_cron();
+    
+    error_log("=== КОНЕЦ ПЕРЕЗАПУСКА ОЧЕРЕДИ ===");
+    
+    wp_send_json_success([
+        'message' => "Очередь {$queue_id} перезапущена",
+        'restarted_accounts' => count($unprocessed_accounts),
+        'scheduled' => $scheduled
+    ]);
+}
+add_action('wp_ajax_restart_queue_diagnostics', 'fttradingapi_restart_queue_diagnostics');
+
+/**
+ * AJAX обработчик для анализа таймаутов
+ */
+function fttradingapi_analyze_timeouts()
+{
+    check_ajax_referer('ft_trader_nonce', 'nonce');
+
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Недостаточно прав']);
+    }
+
+    require_once plugin_dir_path(__FILE__) . 'class-account-updater.php';
+    
+    // Выполняем анализ в тестовом режиме
+    $result = Account_Updater::cleanup_timeout_queues([
+        'dry_run' => true,
+        'older_than_hours' => 1, // Анализируем все старше 1 часа
+        'include_completed' => true // Включаем завершенные
+    ]);
+    
+    if ($result['success']) {
+        $analysis_html = '<div class="analysis-results">';
+        $analysis_html .= '<h4>📊 Результаты анализа</h4>';
+        $analysis_html .= '<p><strong>Проанализировано очередей:</strong> ' . $result['analyzed_queues'] . '</p>';
+        
+        if (!empty($result['eligible_for_cleanup'])) {
+            $analysis_html .= '<h5>🗑️ Готовы к очистке (' . count($result['eligible_for_cleanup']) . '):</h5>';
+            $analysis_html .= '<ul style="max-height: 200px; overflow-y: auto;">';
+            foreach ($result['eligible_for_cleanup'] as $queue) {
+                $analysis_html .= sprintf(
+                    '<li><code>%s</code> - %s (возраст: %.1fч, прогресс: %.1f%%)</li>',
+                    $queue['queue_id'],
+                    $queue['reason'],
+                    $queue['age_hours'],
+                    $queue['progress']
+                );
+            }
+            $analysis_html .= '</ul>';
+        }
+        
+        if (!empty($result['preserved_queues'])) {
+            $analysis_html .= '<h5>✅ Будут сохранены (' . count($result['preserved_queues']) . '):</h5>';
+            $analysis_html .= '<ul style="max-height: 150px; overflow-y: auto;">';
+            foreach ($result['preserved_queues'] as $queue) {
+                $analysis_html .= sprintf(
+                    '<li><code>%s</code> - %s (возраст: %.1fч, прогресс: %.1f%%)</li>',
+                    $queue['queue_id'],
+                    $queue['reason'],
+                    $queue['age_hours'],
+                    $queue['progress']
+                );
+            }
+            $analysis_html .= '</ul>';
+        }
+        
+        $analysis_html .= '</div>';
+        
+        wp_send_json_success([
+            'message' => $result['summary'],
+            'html' => $analysis_html,
+            'eligible_count' => count($result['eligible_for_cleanup']),
+            'preserved_count' => count($result['preserved_queues'])
+        ]);
+    } else {
+        wp_send_json_error(['message' => 'Ошибка анализа: ' . implode(', ', $result['errors'])]);
+    }
+}
+add_action('wp_ajax_analyze_timeouts', 'fttradingapi_analyze_timeouts');
+
+/**
+ * AJAX обработчик для очистки старых таймаутов (24ч+)
+ */
+function fttradingapi_cleanup_old_timeouts()
+{
+    check_ajax_referer('ft_trader_nonce', 'nonce');
+
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Недостаточно прав']);
+    }
+
+    error_log("=== ОЧИСТКА СТАРЫХ ТАЙМАУТОВ ===");
+    error_log("Инициатор: " . wp_get_current_user()->user_login);
+    
+    require_once plugin_dir_path(__FILE__) . 'class-account-updater.php';
+    
+    // Очищаем только старые таймауты (24ч+)
+    $result = Account_Updater::cleanup_timeout_queues([
+        'dry_run' => false,
+        'older_than_hours' => 24,
+        'min_progress' => 0,
+        'max_progress' => 100,
+        'include_completed' => false // Не трогаем завершенные
+    ]);
+    
+    if ($result['success']) {
+        $cleanup_html = '<div class="cleanup-results">';
+        $cleanup_html .= '<h4>✅ Очистка завершена</h4>';
+        $cleanup_html .= '<p><strong>Результат:</strong> ' . $result['summary'] . '</p>';
+        
+        if (!empty($result['cleaned_queues'])) {
+            $cleanup_html .= '<h5>🗑️ Очищенные очереди:</h5>';
+            $cleanup_html .= '<ul>';
+            foreach ($result['cleaned_queues'] as $queue) {
+                $cleanup_html .= sprintf(
+                    '<li><code>%s</code> (конкурс: %s, счетов: %d)</li>',
+                    $queue['queue_id'],
+                    $queue['contest_id'] ?: 'глобальные',
+                    $queue['accounts_count']
+                );
+            }
+            $cleanup_html .= '</ul>';
+        }
+        
+        if (!empty($result['errors'])) {
+            $cleanup_html .= '<h5>❌ Ошибки:</h5>';
+            $cleanup_html .= '<ul>';
+            foreach ($result['errors'] as $error) {
+                $cleanup_html .= '<li style="color: #d63638;">' . esc_html($error) . '</li>';
+            }
+            $cleanup_html .= '</ul>';
+        }
+        
+        $cleanup_html .= '<p><em>Страница обновится автоматически через 3 секунды...</em></p>';
+        $cleanup_html .= '</div>';
+        
+        wp_send_json_success([
+            'message' => $result['summary'],
+            'html' => $cleanup_html,
+            'cleaned_count' => count($result['cleaned_queues']),
+            'error_count' => count($result['errors'])
+        ]);
+    } else {
+        wp_send_json_error(['message' => 'Ошибка очистки: ' . implode(', ', $result['errors'])]);
+    }
+}
+add_action('wp_ajax_cleanup_old_timeouts', 'fttradingapi_cleanup_old_timeouts');
+
+/**
+ * AJAX обработчик для очистки всех таймаутов
+ */
+function fttradingapi_cleanup_all_timeouts()
+{
+    check_ajax_referer('ft_trader_nonce', 'nonce');
+
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Недостаточно прав']);
+    }
+
+    error_log("=== ОЧИСТКА ВСЕХ ТАЙМАУТОВ ===");
+    error_log("Инициатор: " . wp_get_current_user()->user_login);
+    
+    require_once plugin_dir_path(__FILE__) . 'class-account-updater.php';
+    
+    // Очищаем ВСЕ таймауты независимо от возраста
+    $result = Account_Updater::cleanup_timeout_queues([
+        'dry_run' => false,
+        'older_than_hours' => 0, // Любой возраст
+        'min_progress' => 0,
+        'max_progress' => 100,
+        'include_completed' => false // Но не трогаем завершенные
+    ]);
+    
+    if ($result['success']) {
+        $cleanup_html = '<div class="cleanup-results">';
+        $cleanup_html .= '<h4>⚠️ Агрессивная очистка завершена</h4>';
+        $cleanup_html .= '<p><strong>Результат:</strong> ' . $result['summary'] . '</p>';
+        
+        if (!empty($result['cleaned_queues'])) {
+            $cleanup_html .= '<h5>🗑️ Очищенные очереди:</h5>';
+            $cleanup_html .= '<ul>';
+            foreach ($result['cleaned_queues'] as $queue) {
+                $cleanup_html .= sprintf(
+                    '<li><code>%s</code> (конкурс: %s, счетов: %d)</li>',
+                    $queue['queue_id'],
+                    $queue['contest_id'] ?: 'глобальные',
+                    $queue['accounts_count']
+                );
+            }
+            $cleanup_html .= '</ul>';
+        }
+        
+        if (!empty($result['preserved_queues'])) {
+            $cleanup_html .= '<h5>✅ Сохранены (активные/новые):</h5>';
+            $cleanup_html .= '<ul>';
+            foreach ($result['preserved_queues'] as $queue) {
+                $cleanup_html .= sprintf(
+                    '<li><code>%s</code> - %s</li>',
+                    $queue['queue_id'],
+                    $queue['reason']
+                );
+            }
+            $cleanup_html .= '</ul>';
+        }
+        
+        if (!empty($result['errors'])) {
+            $cleanup_html .= '<h5>❌ Ошибки:</h5>';
+            $cleanup_html .= '<ul>';
+            foreach ($result['errors'] as $error) {
+                $cleanup_html .= '<li style="color: #d63638;">' . esc_html($error) . '</li>';
+            }
+            $cleanup_html .= '</ul>';
+        }
+        
+        $cleanup_html .= '<p><em>Страница обновится автоматически через 3 секунды...</em></p>';
+        $cleanup_html .= '</div>';
+        
+        wp_send_json_success([
+            'message' => $result['summary'],
+            'html' => $cleanup_html,
+            'cleaned_count' => count($result['cleaned_queues']),
+            'preserved_count' => count($result['preserved_queues']),
+            'error_count' => count($result['errors'])
+        ]);
+    } else {
+        wp_send_json_error(['message' => 'Ошибка очистки: ' . implode(', ', $result['errors'])]);
+    }
+}
+add_action('wp_ajax_cleanup_all_timeouts', 'fttradingapi_cleanup_all_timeouts');
+
+/**
+ * Создает записи начальных значений в истории изменений для нового счета
+ * 
+ * @param int $account_id ID нового счета
+ * @param array $db_data Данные счета для записи в историю
+ */
+function create_initial_history_records($account_id, $db_data) {
+    global $wpdb;
+    $history_table = $wpdb->prefix . 'contest_members_history';
+    
+    // Определяем все поля, которые нужно записать как начальные значения
+    $fields_to_record = [
+        // Финансовые поля
+        'balance' => 'i_bal',
+        'equity' => 'i_equi', 
+        'margin' => 'i_marg',
+        'profit' => 'i_prof',
+        'leverage' => 'leverage',
+        'orders_total' => 'i_ordtotal',
+        'orders_history_total' => 'h_count',
+        'orders_history_profit' => 'h_prof',
+        
+        // Информационные поля  
+        'broker' => 'i_firma',
+        'name' => 'i_fio',
+        'account_type' => 'i_dr',
+        'currency' => 'i_cur',
+        'password' => 'pass',
+        'server' => 'srvMt4',
+        'connection_status' => 'connection_status'
+    ];
+    
+    $current_time = current_time('mysql');
+    
+    foreach ($fields_to_record as $db_field => $history_field) {
+        if (isset($db_data[$db_field])) {
+            $value = $db_data[$db_field];
+            
+            // Пропускаем нулевые и пустые значения для некоторых полей
+            if (in_array($db_field, ['balance', 'equity', 'margin', 'profit', 'leverage']) && 
+                ($value === 0 || $value === '0' || $value === null || $value === '')) {
+                continue;
+            }
+            
+            // Вставляем запись начального значения
+            $wpdb->insert(
+                $history_table,
+                [
+                    'account_id' => $account_id,
+                    'field_name' => $history_field,
+                    'old_value' => '', // Для начальных значений старое значение пустое
+                    'new_value' => $value,
+                    'change_percent' => null, // Для начальных значений процент изменения не рассчитывается
+                    'change_date' => $current_time
+                ],
+                ['%d', '%s', '%s', '%s', '%f', '%s']
+            );
+            
+            error_log("[INITIAL-HISTORY] Создана запись начального значения: field={$history_field}, value={$value} (account_id: {$account_id})");
+        }
+    }
+    
+    // Создаем запись для active_orders_volume (всегда 0 для нового счета)
+    $wpdb->insert(
+        $history_table,
+        [
+            'account_id' => $account_id,
+            'field_name' => 'active_orders_volume',
+            'old_value' => '',
+            'new_value' => '0',
+            'change_percent' => null,
+            'change_date' => $current_time
+        ],
+        ['%d', '%s', '%s', '%s', '%f', '%s']
+    );
+    
+    error_log("[INITIAL-HISTORY] Созданы записи начальных значений для счета ID: {$account_id}");
+}
+
+/**
+ * Создает недостающие записи начальных значений для существующих счетов
+ * 
+ * @param int $account_id ID счета (необязательно, если не указан - обработает все счета)
+ */
+function create_missing_initial_records($account_id = null) {
+    global $wpdb;
+    $members_table = $wpdb->prefix . 'contest_members';
+    $history_table = $wpdb->prefix . 'contest_members_history';
+    
+    // Получаем список счетов для обработки
+    if ($account_id) {
+        $accounts = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$members_table} WHERE id = %d",
+            $account_id
+        ));
+    } else {
+        $accounts = $wpdb->get_results("SELECT * FROM {$members_table}");
+    }
+    
+    $fields_to_check = [
+        'balance' => 'i_bal',
+        'equity' => 'i_equi', 
+        'margin' => 'i_marg',
+        'profit' => 'i_prof',
+        'leverage' => 'leverage',
+        'orders_total' => 'i_ordtotal',
+        'orders_history_total' => 'h_count',
+        'broker' => 'i_firma',
+        'name' => 'i_fio',
+        'account_type' => 'i_dr',
+        'currency' => 'i_cur',
+        'password' => 'pass',
+        'server' => 'srvMt4',
+        'connection_status' => 'connection_status'
+    ];
+    
+    foreach ($accounts as $account) {
+        $account_id = $account->id;
+        $created_records = 0;
+        
+        foreach ($fields_to_check as $db_field => $history_field) {
+            // Проверяем, есть ли уже записи для этого поля
+            $existing_count = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$history_table} WHERE account_id = %d AND field_name = %s",
+                $account_id,
+                $history_field
+            ));
+            
+            // Если записей нет, создаем начальную запись
+            if ($existing_count == 0 && isset($account->{$db_field})) {
+                $value = $account->{$db_field};
+                
+                // Пропускаем нулевые значения для финансовых полей
+                if (in_array($db_field, ['balance', 'equity', 'margin', 'profit', 'leverage']) && 
+                    ($value === 0 || $value === '0' || $value === null || $value === '')) {
+                    continue;
+                }
+                
+                // Используем дату регистрации как дату начального значения
+                $initial_date = $account->registration_date ?: current_time('mysql');
+                
+                $wpdb->insert(
+                    $history_table,
+                    [
+                        'account_id' => $account_id,
+                        'field_name' => $history_field,
+                        'old_value' => '',
+                        'new_value' => $value,
+                        'change_percent' => null,
+                        'change_date' => $initial_date
+                    ],
+                    ['%d', '%s', '%s', '%s', '%f', '%s']
+                );
+                
+                $created_records++;
+                error_log("[MISSING-INITIAL] Создана начальная запись: account_id={$account_id}, field={$history_field}, value={$value}");
+            }
+        }
+        
+        // Проверяем active_orders_volume отдельно
+        $existing_volume_count = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$history_table} WHERE account_id = %d AND field_name = 'active_orders_volume'",
+            $account_id
+        ));
+        
+        if ($existing_volume_count == 0) {
+            $initial_date = $account->registration_date ?: current_time('mysql');
+            
+            $wpdb->insert(
+                $history_table,
+                [
+                    'account_id' => $account_id,
+                    'field_name' => 'active_orders_volume',
+                    'old_value' => '',
+                    'new_value' => '0',
+                    'change_percent' => null,
+                    'change_date' => $initial_date
+                ],
+                ['%d', '%s', '%s', '%s', '%f', '%s']
+            );
+            
+            $created_records++;
+        }
+        
+        if ($created_records > 0) {
+            error_log("[MISSING-INITIAL] Создано {$created_records} начальных записей для счета ID: {$account_id}");
+        }
+    }
+}
+
+// AJAX обработчик для создания недостающих начальных записей
+function fttradingapi_create_missing_initial_records() {
+    check_ajax_referer('ft_trader_nonce', 'nonce');
+    
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Недостаточно прав']);
+    }
+    
+    $account_id = isset($_POST['account_id']) ? intval($_POST['account_id']) : null;
+    
+    create_missing_initial_records($account_id);
+    
+    if ($account_id) {
+        wp_send_json_success(['message' => 'Начальные записи созданы для счета ID: ' . $account_id]);
+    } else {
+        wp_send_json_success(['message' => 'Начальные записи созданы для всех счетов']);
+    }
+}
+
+add_action('wp_ajax_create_missing_initial_records', 'fttradingapi_create_missing_initial_records');

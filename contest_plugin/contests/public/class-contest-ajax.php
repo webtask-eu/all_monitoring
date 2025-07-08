@@ -117,7 +117,7 @@ public function load_registration_form() {
         
         // Добавляем только те поля, которые были переданы
         if (isset($_POST['password']) && !empty($_POST['password'])) {
-            $account_data['password'] = sanitize_text_field($_POST['password']);
+            $account_data['password'] = wp_unslash($_POST['password']);
         } else {
             $account_data['password'] = $account->password;
         }
@@ -423,7 +423,7 @@ public function load_registration_form() {
         // Получаем и проверяем данные
         $contest_id = intval($_POST['contest_id']);
         $account_number = sanitize_text_field($_POST['account_number']);
-        $password = sanitize_text_field($_POST['password']);
+        $password = wp_unslash($_POST['password']);
         $server = sanitize_text_field($_POST['server']);
         $terminal = sanitize_text_field($_POST['terminal']);
         

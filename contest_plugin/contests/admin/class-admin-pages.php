@@ -108,6 +108,7 @@ function get_active_update_queues_html() {
                 // Определяем статус
                 $status_text = 'Неизвестно';
                 $status_class = '';
+                $timeout_info = '';
                 
                 if (isset($status_data['is_running'])) {
                     if ($status_data['is_running']) {
@@ -118,8 +119,19 @@ function get_active_update_queues_html() {
                             $status_text = 'Завершено';
                             $status_class = 'completed';
                         } else {
-                            $status_text = 'Остановлено';
-                            $status_class = 'stopped';
+                            // Проверяем, был ли таймаут
+                            if (isset($status_data['timeout']) && $status_data['timeout'] === true) {
+                                $status_text = 'Таймаут';
+                                $status_class = 'timeout';
+                                
+                                // Добавляем информацию о причине таймаута
+                                if (isset($status_data['timeout_reason'])) {
+                                    $timeout_info = '<div class="timeout-reason">Причина: ' . esc_html($status_data['timeout_reason']) . '</div>';
+                                }
+                            } else {
+                                $status_text = 'Остановлено';
+                                $status_class = 'stopped';
+                            }
                         }
                     }
                 }
@@ -137,7 +149,7 @@ function get_active_update_queues_html() {
                         </div>
                     </td>';
                 $html .= '<td>' . esc_html($start_time) . '</td>';
-                $html .= '<td><span class="queue-status ' . esc_attr($status_class) . '">' . esc_html($status_text) . '</span></td>';
+                $html .= '<td><span class="queue-status ' . esc_attr($status_class) . '">' . esc_html($status_text) . '</span>' . $timeout_info . '</td>';
                 $html .= '</tr>';
             }
             
@@ -201,6 +213,17 @@ function get_active_update_queues_html() {
             .queue-status.stopped {
                 background-color: #f44336;
                 color: white;
+            }
+            .queue-status.timeout {
+                background-color: #ff9800;
+                color: white;
+            }
+            .timeout-reason {
+                font-size: 11px;
+                color: #666;
+                margin-top: 4px;
+                font-style: italic;
+                line-height: 1.2;
             }
         </style>';
     }
@@ -348,7 +371,7 @@ function fttradingapi_edit_account_page_callback() {
                 </tr>
                 <tr>
                     <th><label for="edit_password">Пароль</label></th>
-                    <td><input type="text" id="edit_password" value="<?php echo esc_attr($account->password); ?>" class="regular-text"></td>
+                    <td><input type="text" id="edit_password" value="<?php echo str_replace('"', '&quot;', $account->password); ?>" class="regular-text"></td>
                 </tr>
                 <tr>
                     <th><label for="edit_server">Сервер</label></th>
@@ -439,7 +462,7 @@ function fttradingapi_view_account_page_callback() {
 
                     <tr>
                         <th>Пароль:</th>
-                        <td><?php echo esc_html($account->password); ?></td>
+                        <td><?php echo htmlspecialchars($account->password, ENT_NOQUOTES, 'UTF-8'); ?></td>
                     </tr>
                     <!-- Добавляем новую строку для статуса подключения -->
                     <tr>
@@ -722,16 +745,16 @@ function fttradingapi_view_account_page_callback() {
                             <option value="i_equi">Средства</option>
                             <option value="i_marg">Использованная маржа</option>
                             <option value="i_prof">Плавающая прибыль/убыток</option>
-                            <option value="i_level">Торговое плечо</option>
-                            <option value="i_orders">Количество открытых ордеров</option>
+                            <option value="leverage">Кредитное плечо</option>
+                            <option value="i_ordtotal">Количество открытых ордеров</option>
+                            <option value="active_orders_volume">Суммарный объем открытых сделок</option>
                             <option value="h_count">Количество записей в истории</option>
                         </optgroup>
                         <optgroup label="Другие параметры">
                             <option value="pass">Пароль</option>
                             <option value="srvMt4">Сервер MT4</option>
                             <option value="i_firma">Брокер</option>
-                            <option value="i_fio">Имя</option>
-                            <option value="i_ordtotal">Всего ордеров</option>
+                                                        <option value="i_fio">Имя</option>
                             <option value="connection_status">Статус подключения</option>
                         </optgroup>
                     </select>
