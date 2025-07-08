@@ -132,24 +132,15 @@ class FTTrader_Settings_Page
             [$this, 'sanitize_thresholds']
         );
 
-        // Добавляем секцию настроек для режима работы API
+        // Добавляем секцию настроек API сервера
         add_settings_section(
             'fttrader_api_mode_section',
-            'Настройки режима работы API',
+            'Настройки API сервера',
             [$this, 'render_api_mode_section_description'],
             'fttrader_settings'
         );
 
-        // Поле для выбора режима API
-        add_settings_field(
-            'ft_api_mode',
-            'Режим API',
-            [$this, 'render_api_mode_field'],
-            'fttrader_settings',
-            'fttrader_api_mode_section'
-        );
-
-        // Поле для настройки IP-адреса сервера (отображается только в режиме direct)
+        // Поле для IP-адреса сервера
         add_settings_field(
             'ft_server_api_ip',
             'IP-адрес сервера',
@@ -158,7 +149,7 @@ class FTTrader_Settings_Page
             'fttrader_api_mode_section'
         );
 
-        // Поле для настройки порта сервера (отображается только в режиме direct)
+        // Поле для порта сервера
         add_settings_field(
             'ft_server_api_port',
             'Порт сервера',
@@ -168,7 +159,6 @@ class FTTrader_Settings_Page
         );
 
         // Регистрируем опции для настроек API
-        register_setting('fttrader_settings', 'ft_api_mode');
         register_setting('fttrader_settings', 'ft_server_api_ip');
         register_setting('fttrader_settings', 'ft_server_api_port');
 
@@ -2080,115 +2070,75 @@ class FTTrader_Settings_Page
      */
     public function render_api_mode_section_description()
     {
-        echo '<p>Настройки режима подключения к API сервера MT4.</p>';
+        echo '<p>Настройки подключения к API сервера MT4.</p>';
     }
 
     /**
-     * Поле для выбора режима API
-     */
-    public function render_api_mode_field()
-    {
-        $api_mode = get_option('ft_api_mode', 'proxy');
-        ?>
-        <select name="ft_api_mode" id="ft_api_mode">
-            <option value="proxy" <?php selected($api_mode, 'proxy'); ?>>Через WebAPI (128.140.100.35)</option>
-            <option value="direct" <?php selected($api_mode, 'direct'); ?>>Прямое подключение к SERVERAPI</option>
-        </select>
-        <p class="description">Способ подключения к серверу MT4</p>
-
-        <script>
-        jQuery(document).ready(function($) {
-            // Функция для управления видимостью полей настроек сервера
-            function toggleServerSettings() {
-                if ($('#ft_api_mode').val() === 'direct') {
-                    $('.ft-server-settings').show();
-                } else {
-                    $('.ft-server-settings').hide();
-                }
-            }
-            
-            // Инициализация видимости при загрузке страницы
-            toggleServerSettings();
-            
-            // Изменение видимости при смене режима
-            $('#ft_api_mode').on('change', function() {
-                toggleServerSettings();
-            });
-        });
-        </script>
-        <?php
-    }
-
-    /**
-     * Поле для IP-адреса SERVERAPI
+     * Поле для IP-адреса сервера API
      */
     public function render_server_api_ip_field()
     {
-        $server_ip = get_option('ft_server_api_ip', 'localhost');
+        $server_ip = get_option('ft_server_api_ip', '127.0.0.1');
         ?>
-        <div class="ft-server-settings">
-            <input type="text" id="ft_server_api_ip" name="ft_server_api_ip" value="<?php echo esc_attr($server_ip); ?>" class="regular-text">
-            <p class="description">IP-адрес сервера SERVERAPI для прямого подключения</p>
-        </div>
+        <input type="text" id="ft_server_api_ip" name="ft_server_api_ip" value="<?php echo esc_attr($server_ip); ?>" class="regular-text">
+        <p class="description">IP-адрес сервера API</p>
         <?php
     }
 
     /**
-     * Поле для порта SERVERAPI
+     * Поле для порта сервера API
      */
     public function render_server_api_port_field()
     {
         $server_port = get_option('ft_server_api_port', '80');
         ?>
-        <div class="ft-server-settings">
-            <input type="text" id="ft_server_api_port" name="ft_server_api_port" value="<?php echo esc_attr($server_port); ?>" class="small-text">
-            <p class="description">Порт сервера SERVERAPI для прямого подключения</p>
-            
-            <div style="margin-top: 10px;">
-                <button type="button" id="check_connection_button" class="button-secondary">Проверить соединение</button>
-                <span id="connection_status" style="margin-left: 10px;"></span>
-            </div>
-            
-            <script>
-            jQuery(document).ready(function($) {
-                $('#check_connection_button').on('click', function() {
-                    var $button = $(this);
-                    var $status = $('#connection_status');
-                    var server_ip = $('#ft_server_api_ip').val();
-                    var server_port = $('#ft_server_api_port').val();
-                    
-                    // Блокируем кнопку и показываем сообщение
-                    $button.prop('disabled', true);
-                    $status.html('<span style="color: gray;">Проверка соединения...</span>');
-                    
-                    // Отправляем AJAX запрос
-                    $.ajax({
-                        url: ajaxurl,
-                        type: 'POST',
-                        data: {
-                            action: 'check_direct_connection',
-                            nonce: '<?php echo wp_create_nonce('check_direct_connection_nonce'); ?>',
-                            server_ip: server_ip,
-                            server_port: server_port
-                        },
-                        success: function(response) {
-                            if (response.success) {
-                                $status.html('<span style="color: green;">' + response.data.message + '</span>');
-                            } else {
-                                $status.html('<span style="color: red;">Ошибка: ' + 
-                                    (response.data ? response.data.message : 'Неизвестная ошибка') + '</span>');
-                            }
-                            $button.prop('disabled', false);
-                        },
-                        error: function(xhr, status, error) {
-                            $status.html('<span style="color: red;">Ошибка соединения: ' + error + '</span>');
-                            $button.prop('disabled', false);
+        <input type="text" id="ft_server_api_port" name="ft_server_api_port" value="<?php echo esc_attr($server_port); ?>" class="small-text">
+        <p class="description">Порт сервера API</p>
+        
+        <div style="margin-top: 10px;">
+            <button type="button" id="check_connection_button" class="button-secondary">Проверить соединение</button>
+            <span id="connection_status" style="margin-left: 10px;"></span>
+        </div>
+        
+        <script>
+        jQuery(document).ready(function($) {
+            $('#check_connection_button').on('click', function() {
+                var $button = $(this);
+                var $status = $('#connection_status');
+                var server_ip = $('#ft_server_api_ip').val();
+                var server_port = $('#ft_server_api_port').val();
+                
+                // Блокируем кнопку и показываем сообщение
+                $button.prop('disabled', true);
+                $status.html('<span style="color: gray;">Проверка соединения...</span>');
+                
+                // Отправляем AJAX запрос
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'check_direct_connection',
+                        nonce: '<?php echo wp_create_nonce('check_direct_connection_nonce'); ?>',
+                        server_ip: server_ip,
+                        server_port: server_port
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            $status.html('<span style="color: green;">' + response.data.message + '</span>');
+                        } else {
+                            $status.html('<span style="color: red;">Ошибка: ' + 
+                                (response.data ? response.data.message : 'Неизвестная ошибка') + '</span>');
                         }
-                    });
+                        $button.prop('disabled', false);
+                    },
+                    error: function(xhr, status, error) {
+                        $status.html('<span style="color: red;">Ошибка соединения: ' + error + '</span>');
+                        $button.prop('disabled', false);
+                    }
                 });
             });
-            </script>
-        </div>
+        });
+        </script>
         <?php
     }
     

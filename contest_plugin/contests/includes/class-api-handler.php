@@ -251,6 +251,18 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
     // Выполняем дополнительную проверку пароля на типичные проблемы
     $password = $params['password'];
     
+    // ИСПРАВЛЕНИЕ: Декодируем HTML-сущности в пароле перед отправкой
+    $decoded_password = html_entity_decode($password, ENT_QUOTES, 'UTF-8');
+    if ($decoded_password !== $password) {
+        ft_api_log([
+            'original_password' => $password,
+            'decoded_password' => $decoded_password,
+            'changed' => true
+        ], "Декодирование HTML-сущностей в пароле", "info");
+        $password = $decoded_password;
+        $params['password'] = $decoded_password;
+    }
+    
     // Убираем все пробельные символы из пароля
     $trimmed_password = preg_replace('/\s+/', '', $password);
     if ($trimmed_password !== $password) {

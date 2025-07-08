@@ -4,31 +4,22 @@
  */
 class FT_API_Config {
     /**
-     * Получает URL API в зависимости от текущих настроек
+     * Получает URL API для прямого подключения к серверу
      *
      * @return string URL для запросов к API
      */
     public static function get_api_url() {
-        // Проверяем настройку режима API
-        $api_mode = get_option('ft_api_mode', 'proxy'); // proxy или direct
-        
-        if ($api_mode === 'direct') {
-            // Прямой режим подключения к SERVERAPI (без WebAPI)
-            $server_ip = get_option('ft_server_api_ip', 'localhost');
-            $server_port = get_option('ft_server_api_port', '80');
-            return "http://{$server_ip}:{$server_port}/api_json_wp.php";
-        } else {
-            // Стандартный режим через WebAPI (128.140.100.35)
-            return "http://128.140.100.35/api_json_wp.php";
-        }
+        $server_ip = get_option('ft_server_api_ip', 'localhost');
+        $server_port = get_option('ft_server_api_port', '80');
+        return "http://{$server_ip}:{$server_port}/api_json_wp.php";
     }
     
     /**
-     * Проверяет доступность SERVERAPI при использовании прямого режима
+     * Проверяет доступность API сервера
      *
      * @return array Результат проверки с сообщением и статусом
      */
-    public static function check_direct_connection() {
+    public static function check_connection() {
         $server_ip = get_option('ft_server_api_ip', 'localhost');
         $server_port = get_option('ft_server_api_port', '80');
         $url = "http://{$server_ip}:{$server_port}/";
@@ -50,7 +41,7 @@ class FT_API_Config {
             if (isset($data['status']) && $data['status'] === 'online') {
                 return [
                     'success' => true,
-                    'message' => 'Соединение с SERVERAPI установлено успешно'
+                    'message' => 'Соединение с API сервером установлено успешно'
                 ];
             }
         }
@@ -67,7 +58,7 @@ class FT_API_Config {
  */
 function ft_api_settings_page() {
     add_options_page(
-        'Настройки API',
+        'Настройки API сервера',
         'Настройки API конкурсов',
         'manage_options',
         'ft_api_settings',
@@ -89,11 +80,9 @@ function ft_api_settings_page_html() {
     if (isset($_POST['ft_api_settings_submit'])) {
         check_admin_referer('ft_api_settings_nonce');
         
-        $api_mode = sanitize_text_field($_POST['ft_api_mode']);
         $server_ip = sanitize_text_field($_POST['ft_server_api_ip']);
         $server_port = sanitize_text_field($_POST['ft_server_api_port']);
         
-        update_option('ft_api_mode', $api_mode);
         update_option('ft_server_api_ip', $server_ip);
         update_option('ft_server_api_port', $server_port);
         
@@ -101,14 +90,13 @@ function ft_api_settings_page_html() {
     }
     
     // Получение текущих настроек
-    $api_mode = get_option('ft_api_mode', 'proxy');
-    $server_ip = get_option('ft_server_api_ip', 'localhost');
+    $server_ip = get_option('ft_server_api_ip', '127.0.0.1');
     $server_port = get_option('ft_server_api_port', '80');
     
     // Проверка соединения при нажатии на кнопку
     if (isset($_POST['ft_check_connection'])) {
         check_admin_referer('ft_api_settings_nonce');
-        $result = FT_API_Config::check_direct_connection();
+        $result = FT_API_Config::check_connection();
         
         if ($result['success']) {
             echo '<div class="notice notice-success is-dismissible"><p>' . esc_html($result['message']) . '</p></div>';
@@ -119,50 +107,29 @@ function ft_api_settings_page_html() {
     
     ?>
     <div class="wrap">
-        <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
+        <h1>Настройки API сервера</h1>
+        <p>Настройки для прямого подключения к серверу API.</p>
+        
         <form method="post" action="">
             <?php wp_nonce_field('ft_api_settings_nonce'); ?>
             <table class="form-table">
                 <tr>
-                    <th scope="row">Режим API</th>
-                    <td>
-                        <select name="ft_api_mode" id="ft_api_mode">
-                            <option value="proxy" <?php selected($api_mode, 'proxy'); ?>>Через WebAPI (128.140.100.35)</option>
-                            <option value="direct" <?php selected($api_mode, 'direct'); ?>>Прямое подключение к SERVERAPI</option>
-                        </select>
-                        <p class="description">Способ подключения к серверу MT4</p>
-                    </td>
-                </tr>
-                <tr id="server_settings" style="<?php echo $api_mode === 'direct' ? '' : 'display: none;'; ?>">
-                    <th scope="row">Настройки SERVERAPI</th>
+                    <th scope="row">Настройки API сервера</th>
                     <td>
                         <label for="ft_server_api_ip">IP-адрес сервера:</label>
                         <input type="text" id="ft_server_api_ip" name="ft_server_api_ip" value="<?php echo esc_attr($server_ip); ?>" class="regular-text">
-                        <br>
+                        <br><br>
                         <label for="ft_server_api_port">Порт:</label>
                         <input type="text" id="ft_server_api_port" name="ft_server_api_port" value="<?php echo esc_attr($server_port); ?>" class="small-text">
-                        <p class="description">IP-адрес и порт сервера SERVERAPI для прямого подключения</p>
+                        <p class="description">IP-адрес и порт сервера API</p>
                     </td>
                 </tr>
             </table>
             <p class="submit">
                 <input type="submit" name="ft_api_settings_submit" class="button-primary" value="Сохранить настройки">
-                <?php if ($api_mode === 'direct'): ?>
                 <input type="submit" name="ft_check_connection" class="button-secondary" value="Проверить соединение">
-                <?php endif; ?>
             </p>
         </form>
     </div>
-    <script>
-    jQuery(document).ready(function($) {
-        $('#ft_api_mode').on('change', function() {
-            if ($(this).val() === 'direct') {
-                $('#server_settings').show();
-            } else {
-                $('#server_settings').hide();
-            }
-        });
-    });
-    </script>
     <?php
 } 
