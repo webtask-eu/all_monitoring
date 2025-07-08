@@ -6,8 +6,8 @@ public function enqueue_admin_scripts() {
     
     // Проверяем, находимся ли мы на странице нашего плагина
     if (strpos($screen->id, 'trader_contests') !== false) {
-        wp_enqueue_style('contest-admin-style', plugin_dir_url(__FILE__) . 'css/admin.css', array(), $this->version);
-        wp_enqueue_script('contest-admin-script', plugin_dir_url(__FILE__) . 'js/admin.js', array('jquery'), $this->version, true);
+        wp_enqueue_style('contest-admin-style', plugin_dir_url(__FILE__) . 'css/admin.css', array(), FTTRADER_PLUGIN_VERSION);
+        wp_enqueue_script('contest-admin-script', plugin_dir_url(__FILE__) . 'js/admin.js', array('jquery'), FTTRADER_PLUGIN_VERSION, true);
         
         // Добавляем локализацию для скриптов
         wp_localize_script('contest-admin-script', 'contest_admin_vars', array(

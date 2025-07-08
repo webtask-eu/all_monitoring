@@ -1007,3 +1007,315 @@
     width: auto;
     z-index: 100000;
 }
+
+/* Стили для отображения активных очередей обновления */
+.active-update-queues {
+    margin: 20px 0;
+    background: #fff;
+    padding: 15px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.active-update-queues h4 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #23282d;
+}
+
+.queues-summary {
+    background: #f9f9f9;
+    padding: 10px 15px;
+    border-radius: 4px;
+    margin-bottom: 15px;
+    border-left: 4px solid #0073aa;
+}
+
+.queues-summary p {
+    margin: 5px 0;
+    font-weight: 500;
+}
+
+.contest-queues-section {
+    margin-bottom: 20px;
+    border: 1px solid #e1e1e1;
+    border-radius: 4px;
+}
+
+.contest-title-toggle {
+    background: #f7f7f7;
+    padding: 12px 15px;
+    margin: 0;
+    border-bottom: 1px solid #e1e1e1;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.contest-title-toggle:hover {
+    background: #f1f1f1;
+}
+
+.contest-title-toggle .toggle-icon {
+    display: inline-block;
+    width: 16px;
+    transition: transform 0.2s ease;
+}
+
+.contest-title-toggle.collapsed .toggle-icon {
+    transform: rotate(-90deg);
+}
+
+.queues-count {
+    font-size: 0.9em;
+    color: #666;
+    font-weight: normal;
+}
+
+.contest-queues-list {
+    padding: 0;
+}
+
+.contest-queues-list.collapsed {
+    display: none;
+}
+
+.queue-row {
+    transition: background-color 0.2s ease;
+}
+
+.queue-row.running {
+    background-color: #f0f8ff;
+}
+
+.queue-row.idle {
+    background-color: #f9f9f9;
+}
+
+.status-badge {
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: #fff;
+}
+
+.status-badge.running {
+    background-color: #00a32a;
+}
+
+.status-badge.idle {
+    background-color: #646970;
+}
+
+.status-badge.completed {
+    background-color: #0073aa;
+}
+
+.status-badge.timeout {
+    background-color: #d63638;
+}
+
+.timeout-reason-detail {
+    font-size: 11px;
+    color: #721c24;
+    margin-top: 4px;
+    padding: 4px 6px;
+    background: #f8d7da;
+    border-radius: 3px;
+    border: 1px solid #f5c2c7;
+    line-height: 1.3;
+    font-style: italic;
+}
+
+.mini-progress-bar {
+    width: 100%;
+    height: 4px;
+    background-color: #e1e1e1;
+    border-radius: 2px;
+    margin-top: 4px;
+    overflow: hidden;
+}
+
+.mini-progress-fill {
+    height: 100%;
+    background-color: #00a32a;
+    transition: width 0.3s ease;
+}
+
+.queue-details-row {
+    background-color: #fafafa;
+}
+
+.accounts-details {
+    padding: 15px;
+}
+
+.accounts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.account-item {
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    border-left: 4px solid #ddd;
+}
+
+.account-item.pending {
+    background-color: #fff3cd;
+    border-left-color: #ffc107;
+}
+
+.account-item.processing {
+    background-color: #d1ecf1;
+    border-left-color: #17a2b8;
+}
+
+.account-item.success {
+    background-color: #d4edda;
+    border-left-color: #28a745;
+}
+
+.account-item.failed {
+    background-color: #f8d7da;
+    border-left-color: #dc3545;
+}
+
+/* Стили для инициаторов очередей */
+.initiator-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.initiator-badge.auto {
+    background: #e7f3ff;
+    color: #0073aa;
+    border: 1px solid #007cba;
+}
+
+.initiator-badge.manual {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffc107;
+}
+
+.account-id {
+    font-weight: 600;
+    color: #0073aa;
+    font-family: monospace;
+}
+
+/* Улучшенные стили для деталей счетов */
+.account-header {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.account-number {
+    font-family: monospace;
+    background: #f0f0f1;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 11px;
+    color: #50575e;
+    font-weight: normal;
+}
+
+.trader-info {
+    font-size: 12px;
+    color: #2c3338;
+    margin-bottom: 3px;
+}
+
+.broker-platform {
+    font-size: 11px;
+    color: #646970;
+    margin-bottom: 4px;
+}
+
+.account-status {
+    display: inline-block;
+    font-size: 11px;
+    color: #666;
+    text-transform: capitalize;
+    margin: 2px 0;
+    padding: 2px 6px;
+    border-radius: 10px;
+    background: #f0f0f1;
+    font-weight: 500;
+}
+
+.account-item.pending .account-status {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.account-item.processing .account-status {
+    background: #cfe2ff;
+    color: #084298;
+}
+
+.account-item.success .account-status {
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+.account-item.failed .account-status {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.account-message {
+    display: block;
+    font-size: 11px;
+    color: #721c24;
+    margin-top: 4px;
+    font-style: italic;
+    background: #f8d7da;
+    padding: 4px 6px;
+    border-radius: 3px;
+    border: 1px solid #f5c2c7;
+}
+
+.toggle-queue-details {
+    margin-top: 5px;
+}
+
+.no-queues {
+    color: #666;
+    font-style: italic;
+    text-align: center;
+    padding: 20px;
+    background: #f9f9f9;
+    border-radius: 4px;
+}
+
+/* Адаптивные стили для мобильных устройств */
+@media (max-width: 768px) {
+    .accounts-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .contest-queues-list table {
+        font-size: 12px;
+    }
+    
+    .contest-queues-list th,
+    .contest-queues-list td {
+        padding: 6px 4px;
+    }
+}

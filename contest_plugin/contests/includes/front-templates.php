@@ -35,7 +35,7 @@ class FT_Contest_Templates {
         
         // Получаем ID конкурса и период
         $contest_id = isset($_POST['contest_id']) ? intval($_POST['contest_id']) : 0;
-        $period = isset($_POST['period']) ? sanitize_text_field($_POST['period']) : 'week';
+        $period = isset($_POST['period']) ? sanitize_text_field($_POST['period']) : 'all';
         $top_count = isset($_POST['top_count']) ? intval($_POST['top_count']) : 3;
         
         if (!$contest_id) {

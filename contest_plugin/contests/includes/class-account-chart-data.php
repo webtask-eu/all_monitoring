@@ -15,7 +15,7 @@ class Account_Chart_Data {
      * @param string $period Период (week, month, year, all)
      * @return array Массив с данными для графика
      */
-    public function get_chart_data($account_id, $period = 'week') {
+    public function get_chart_data($account_id, $period = 'all') {
         $this->current_period = $period;
         
         // Получаем данные счета
@@ -170,7 +170,7 @@ class Account_Chart_Data {
     
     
     // Добавим свойство для хранения текущего периода
-    private $current_period = 'week';
+    private $current_period = 'all';
 
     /**
      * Получает начальную дату для выбранного периода
@@ -447,7 +447,7 @@ private function reconstruct_balance_history($history_data, $account_data) {
  * @param string $period Период (week, month, year, all)
  * @return array Массив с данными для графика
  */
-public function get_leaders_chart_data($contest_id, $top_count = 3, $period = 'week') {
+public function get_leaders_chart_data($contest_id, $top_count = 3, $period = 'all') {
     global $wpdb;
     
     // Получаем топ-N лидеров конкурса

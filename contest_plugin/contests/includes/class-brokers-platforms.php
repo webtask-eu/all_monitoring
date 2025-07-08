@@ -20,6 +20,8 @@ class FTTrader_Brokers_Platforms {
         
         add_action('wp_ajax_get_broker_servers', array(__CLASS__, 'ajax_get_broker_servers'));
         add_action('wp_ajax_nopriv_get_broker_servers', array(__CLASS__, 'ajax_get_broker_servers'));
+        add_action('wp_ajax_get_contest_servers', array(__CLASS__, 'ajax_get_contest_servers'));
+        add_action('wp_ajax_nopriv_get_contest_servers', array(__CLASS__, 'ajax_get_contest_servers'));
     }
     
     /**
@@ -433,14 +435,53 @@ class FTTrader_Brokers_Platforms {
         
         $broker_id = intval($_POST['broker_id']);
         $platform_id = intval($_POST['platform_id']);
+        $contest_id = isset($_POST['contest_id']) ? intval($_POST['contest_id']) : 0;
         
         $servers = self::get_broker_servers($broker_id, $platform_id);
         
         error_log('[DEBUG] Результат get_broker_servers для брокера ' . $broker_id . ', платформы ' . $platform_id . ': ' . json_encode($servers));
         
+        // Если указан contest_id, фильтруем серверы по списку разрешенных для конкурса
+        if ($contest_id > 0) {
+            $contest_data = get_post_meta($contest_id, '_fttradingapi_contest_data', true);
+            
+            if (!empty($contest_data) && isset($contest_data['servers'])) {
+                // Получаем список разрешенных серверов для конкурса
+                $allowed_servers = array();
+                
+                if (is_array($contest_data['servers'])) {
+                    // Если servers сохранен как массив
+                    $allowed_servers = $contest_data['servers'];
+                } elseif (is_string($contest_data['servers'])) {
+                    // Если servers сохранен как строка с переносами строк
+                    $allowed_servers = array_filter(array_map('trim', explode("\n", $contest_data['servers'])));
+                }
+                
+                if (!empty($allowed_servers)) {
+                    // Фильтруем серверы по списку разрешенных
+                    $servers = array_filter($servers, function($server) use ($allowed_servers) {
+                        return in_array($server->server_address, $allowed_servers);
+                    });
+                    
+                    // Переиндексируем массив
+                    $servers = array_values($servers);
+                    
+                    error_log('[DEBUG] Серверы отфильтрованы для конкурса ' . $contest_id . '. Разрешенные серверы: ' . json_encode($allowed_servers) . '. Итоговый список: ' . json_encode($servers));
+                } else {
+                    error_log('[WARNING] Для конкурса ID=' . $contest_id . ' не настроены разрешенные серверы. Показываем все серверы.');
+                }
+            } else {
+                error_log('[WARNING] Для конкурса ID=' . $contest_id . ' не найдены данные или серверы. Показываем все серверы.');
+            }
+        }
+        
         // Проверка наличия серверов
         if (empty($servers)) {
-            error_log('[WARNING] Для брокера ID=' . $broker_id . ' и платформы ID=' . $platform_id . ' не найдено серверов');
+            if ($contest_id > 0) {
+                error_log('[WARNING] Для брокера ID=' . $broker_id . ', платформы ID=' . $platform_id . ' и конкурса ID=' . $contest_id . ' не найдено разрешенных серверов');
+            } else {
+                error_log('[WARNING] Для брокера ID=' . $broker_id . ' и платформы ID=' . $platform_id . ' не найдено серверов');
+            }
             
             // Проверяем, существуют ли такой брокер и платформа
             $broker = self::get_broker($broker_id);
@@ -453,6 +494,111 @@ class FTTrader_Brokers_Platforms {
             wp_send_json_success(array());
         } else {
             wp_send_json_success($servers);
+        }
+    }
+
+    /**
+     * AJAX обработчик для получения серверов конкурса напрямую
+     */
+    public static function ajax_get_contest_servers() {
+        // Отладочная информация
+        error_log('[DEBUG] AJAX запрос get_contest_servers: ' . json_encode($_POST));
+        
+        // Проверка nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'ft_contest_nonce')) {
+            error_log('[ERROR] Ошибка nonce в get_contest_servers');
+            wp_send_json_error(array('message' => 'Ошибка безопасности. Пожалуйста, обновите страницу и попробуйте снова.'));
+        }
+        
+        // Проверка наличия ID конкурса
+        if (!isset($_POST['contest_id']) || empty($_POST['contest_id'])) {
+            error_log('[ERROR] ID конкурса не указан в get_contest_servers');
+            wp_send_json_error(array('message' => 'ID конкурса не указан.'));
+        }
+        
+        $contest_id = intval($_POST['contest_id']);
+        
+        // Получаем данные конкурса
+        $contest_data = get_post_meta($contest_id, '_fttradingapi_contest_data', true);
+        
+        if (empty($contest_data) || !isset($contest_data['servers'])) {
+            error_log('[WARNING] Для конкурса ID=' . $contest_id . ' не найдены настройки серверов');
+            wp_send_json_error(array('message' => 'Для этого конкурса не настроены серверы.'));
+            return;
+        }
+        
+        // Получаем список разрешенных серверов для конкурса
+        $allowed_servers = array();
+        
+        if (is_array($contest_data['servers'])) {
+            // Если servers сохранен как массив
+            $allowed_servers = $contest_data['servers'];
+        } elseif (is_string($contest_data['servers'])) {
+            // Если servers сохранен как строка, пробуем разные разделители
+            $servers_string = $contest_data['servers'];
+            
+            // Сначала пробуем разделить по переносам строк
+            $allowed_servers = array_filter(array_map('trim', explode("\n", $servers_string)));
+            
+            // Если получилась одна строка, пробуем разделить по запятым
+            if (count($allowed_servers) == 1 && strpos($allowed_servers[0], ',') !== false) {
+                $allowed_servers = array_filter(array_map('trim', explode(",", $allowed_servers[0])));
+            }
+            
+            // Если всё ещё одна строка, пробуем разделить по пробелам (для адресов серверов)
+            if (count($allowed_servers) == 1 && strpos($allowed_servers[0], ' ') !== false) {
+                $allowed_servers = array_filter(array_map('trim', preg_split('/\s+/', $allowed_servers[0])));
+            }
+        }
+        
+        if (empty($allowed_servers)) {
+            error_log('[WARNING] Для конкурса ID=' . $contest_id . ' список серверов пуст');
+            wp_send_json_error(array('message' => 'Для этого конкурса не настроены серверы.'));
+            return;
+        }
+        
+        error_log('[DEBUG] Разрешенные серверы для конкурса ' . $contest_id . ': ' . json_encode($allowed_servers));
+        
+        // Получаем все серверы из базы и фильтруем по разрешенным
+        global $wpdb;
+        $servers_table = $wpdb->prefix . 'broker_servers';
+        
+        $result_servers = array();
+        foreach ($allowed_servers as $server_address) {
+            $server = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM $servers_table WHERE server_address = %s",
+                $server_address
+            ));
+            
+            if ($server) {
+                $result_servers[] = $server;
+            } else {
+                // Если сервер не найден в базе, создаем простой объект с улучшенным названием
+                $display_name = $server_address;
+                
+                // Улучшаем отображение названия сервера
+                if (strpos($server_address, '-') !== false) {
+                    // Заменяем дефисы на пробелы для лучшей читаемости
+                    $display_name = str_replace('-', ' - ', $server_address);
+                }
+                
+                // Делаем первые буквы заглавными
+                $display_name = ucwords(strtolower($display_name));
+                
+                $result_servers[] = (object) array(
+                    'name' => $display_name,
+                    'server_address' => $server_address,
+                    'description' => 'Сервер для конкурса'
+                );
+            }
+        }
+        
+        error_log('[DEBUG] Итоговый список серверов для конкурса ' . $contest_id . ': ' . json_encode($result_servers));
+        
+        if (empty($result_servers)) {
+            wp_send_json_error(array('message' => 'Серверы для конкурса не найдены.'));
+        } else {
+            wp_send_json_success($result_servers);
         }
     }
 }

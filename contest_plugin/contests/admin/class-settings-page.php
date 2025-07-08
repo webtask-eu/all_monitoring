@@ -199,19 +199,22 @@ class FTTrader_Settings_Page
 
         // Минимальный интервал между обновлениями одного счета (в минутах)
         add_settings_field(
-            'fttrader_min_update_interval',
-            'Минимальный интервал обновления (минуты)',
+            'fttrader_update_interval_minutes',
+            'Минимальный интервал обновления одного счета (минуты)',
             [$this, 'render_number_field'],
             'fttrader_settings',
             'fttrader_auto_update_section',
             [
-                'label_for' => 'fttrader_min_update_interval',
-                'description' => 'Минимальный интервал между обновлениями одного счета в минутах. Счета, обновленные ранее, будут пропущены.',
+                'label_for' => 'fttrader_update_interval_minutes',
+                'description' => 'Минимальный интервал между обновлениями одного счета в минутах.',
                 'default' => 5,
                 'min' => 1,
-                'max' => 1440 // 24 часа
+                'max' => 1440
             ]
         );
+        
+        // Добавляем настройки защиты очередей
+        // $this->register_queue_protection_settings(); // Удалена система защиты очередей
 
         // Интервал обновления счетов с ошибками (в минутах)
         add_settings_field(
@@ -229,6 +232,22 @@ class FTTrader_Settings_Page
             ]
         );
 
+        // Интервал обновления дисквалифицированных счетов (в минутах)
+        add_settings_field(
+            'fttrader_disq_accounts_interval',
+            'Интервал обновления дисквалифицированных счетов (минуты)',
+            [$this, 'render_number_field'],
+            'fttrader_settings',
+            'fttrader_auto_update_section',
+            [
+                'label_for' => 'fttrader_disq_accounts_interval',
+                'description' => 'Через сколько минут повторно обновлять дисквалифицированные счета. 0 – не обновлять.',
+                'default' => 1440,
+                'min' => 0,
+                'max' => 10080
+            ]
+        );
+        
         // Количество счетов для одновременного обновления
         add_settings_field(
             'fttrader_batch_size',
@@ -245,19 +264,67 @@ class FTTrader_Settings_Page
             ]
         );
 
+        // Интервал между обработкой батчей
+        add_settings_field(
+            'fttrader_batch_processing_interval',
+            'Интервал обработки батчей (секунды)',
+            [$this, 'render_number_field'],
+            'fttrader_settings',
+            'fttrader_auto_update_section',
+            [
+                'label_for' => 'fttrader_batch_processing_interval',
+                'description' => 'Интервал между обработкой порций счетов внутри одной очереди. Через сколько секунд обрабатывать следующую порцию счетов. По умолчанию: 300 секунд (5 минут).',
+                'default' => 300,
+                'min' => 1,
+                'max' => 3600 // 1 час
+            ]
+        );
+
         // Интервал между запусками автообновления
         add_settings_field(
             'fttrader_auto_update_interval',
-            'Интервал запуска автообновления (минуты)',
+            'Интервал создания очередей обновления (минуты)',
             [$this, 'render_number_field'],
             'fttrader_settings',
             'fttrader_auto_update_section',
             [
                 'label_for' => 'fttrader_auto_update_interval',
-                'description' => 'Интервал между запусками автоматического обновления счетов в минутах (15, 30, 60, 720, 1440).',
+                'description' => 'Как часто создавать новые очереди для обновления счетов. Каждые N минут система создает новую очередь и начинает обновлять счета. Рекомендуется: 15-60 минут.',
                 'default' => 60,
-                'min' => 15,
+                'min' => 5,
                 'max' => 1440 // 24 часа
+            ]
+        );
+
+        // Таймаут HTTP запросов к API серверу
+        add_settings_field(
+            'fttrader_api_timeout',
+            'HTTP таймаут запросов к API (секунды)',
+            [$this, 'render_number_field'],
+            'fttrader_settings',
+            'fttrader_auto_update_section',
+            [
+                'label_for' => 'fttrader_api_timeout',
+                'description' => 'Максимальное время ожидания ответа от API сервера мониторинга при обновлении счета. Если сервер не отвечает за это время, счет будет помечен как failed. Рекомендуется: 30-60 секунд.',
+                'default' => 30,
+                'min' => 10,
+                'max' => 120
+            ]
+        );
+
+        // Таймаут очередей обновления
+        add_settings_field(
+            'fttrader_auto_update_timeout',
+            'Таймаут очередей обновления (минуты)',
+            [$this, 'render_number_field'],
+            'fttrader_settings',
+            'fttrader_auto_update_section',
+            [
+                'label_for' => 'fttrader_auto_update_timeout',
+                'description' => 'Максимальное время работы одной очереди обновления. Если очередь не обновляется больше указанного времени, она автоматически останавливается. Рекомендуется: 30-60 минут.',
+                'default' => 30,
+                'min' => 10,
+                'max' => 240 // 4 часа
             ]
         );
 
@@ -305,6 +372,14 @@ class FTTrader_Settings_Page
     public function render_auto_update_section_description()
     {
         echo '<p>Настройте параметры автоматического обновления счетов. Обновление выполняется через WP Cron.</p>';
+        echo '<div class="notice notice-info inline">';
+        echo '<p><strong>Объяснение настроек:</strong></p>';
+        echo '<ul>';
+        echo '<li><strong>Интервал создания очередей</strong> - как часто система создает новые очереди для обновления счетов</li>';
+        echo '<li><strong>Интервал обработки батчей</strong> - как часто обрабатываются порции счетов внутри одной очереди</li>';
+        echo '<li><strong>Размер пакета</strong> - количество счетов, обрабатываемых за один раз</li>';
+        echo '</ul>';
+        echo '</div>';
     }
 
     // Отрисовка поля с числовым значением
@@ -364,6 +439,18 @@ class FTTrader_Settings_Page
             $sanitized_input['fttrader_error_accounts_interval'] = 30; // Значение по умолчанию
         }
 
+        // Интервал обновления дисквалифицированных счетов (в минутах)
+        if (isset($input['fttrader_disq_accounts_interval'])) {
+            $sanitized_input['fttrader_disq_accounts_interval'] = intval($input['fttrader_disq_accounts_interval']);
+            if ($sanitized_input['fttrader_disq_accounts_interval'] < 0) {
+                $sanitized_input['fttrader_disq_accounts_interval'] = 0;
+            } elseif ($sanitized_input['fttrader_disq_accounts_interval'] > 10080) { // 7 дней
+                $sanitized_input['fttrader_disq_accounts_interval'] = 10080;
+            }
+        } else {
+            $sanitized_input['fttrader_disq_accounts_interval'] = 1440; // 24 часа по умолчанию
+        }
+
         // Размер пакета
         if (isset($input['fttrader_batch_size'])) {
             $sanitized_input['fttrader_batch_size'] = intval($input['fttrader_batch_size']);
@@ -376,16 +463,52 @@ class FTTrader_Settings_Page
             $sanitized_input['fttrader_batch_size'] = 5; // Значение по умолчанию
         }
 
+        // Интервал между обработкой батчей
+        if (isset($input['fttrader_batch_processing_interval'])) {
+            $sanitized_input['fttrader_batch_processing_interval'] = intval($input['fttrader_batch_processing_interval']);
+            if ($sanitized_input['fttrader_batch_processing_interval'] < 1) {
+                $sanitized_input['fttrader_batch_processing_interval'] = 1;
+            } elseif ($sanitized_input['fttrader_batch_processing_interval'] > 3600) {
+                $sanitized_input['fttrader_batch_processing_interval'] = 3600;
+            }
+        } else {
+            $sanitized_input['fttrader_batch_processing_interval'] = 300; // Значение по умолчанию
+        }
+
         // Интервал между запусками автообновления
         if (isset($input['fttrader_auto_update_interval'])) {
             $sanitized_input['fttrader_auto_update_interval'] = intval($input['fttrader_auto_update_interval']);
-            if ($sanitized_input['fttrader_auto_update_interval'] < 15) {
-                $sanitized_input['fttrader_auto_update_interval'] = 15;
+            if ($sanitized_input['fttrader_auto_update_interval'] < 5) {
+                $sanitized_input['fttrader_auto_update_interval'] = 5;
             } elseif ($sanitized_input['fttrader_auto_update_interval'] > 1440) {
                 $sanitized_input['fttrader_auto_update_interval'] = 1440;
             }
         } else {
             $sanitized_input['fttrader_auto_update_interval'] = 60; // Значение по умолчанию
+        }
+
+        // HTTP таймаут запросов к API серверу
+        if (isset($input['fttrader_api_timeout'])) {
+            $sanitized_input['fttrader_api_timeout'] = intval($input['fttrader_api_timeout']);
+            if ($sanitized_input['fttrader_api_timeout'] < 10) {
+                $sanitized_input['fttrader_api_timeout'] = 10;
+            } elseif ($sanitized_input['fttrader_api_timeout'] > 120) {
+                $sanitized_input['fttrader_api_timeout'] = 120;
+            }
+        } else {
+            $sanitized_input['fttrader_api_timeout'] = 30; // Значение по умолчанию
+        }
+
+        // Таймаут очередей обновления
+        if (isset($input['fttrader_auto_update_timeout'])) {
+            $sanitized_input['fttrader_auto_update_timeout'] = intval($input['fttrader_auto_update_timeout']);
+            if ($sanitized_input['fttrader_auto_update_timeout'] < 10) {
+                $sanitized_input['fttrader_auto_update_timeout'] = 10;
+            } elseif ($sanitized_input['fttrader_auto_update_timeout'] > 240) {
+                $sanitized_input['fttrader_auto_update_timeout'] = 240;
+            }
+        } else {
+            $sanitized_input['fttrader_auto_update_timeout'] = 30; // Значение по умолчанию
         }
 
         // Включение/выключение автоматического обновления
@@ -415,10 +538,10 @@ class FTTrader_Settings_Page
             $auto_update_settings['fttrader_auto_update_enabled'] : false;
 
         // Получаем информацию о последнем запуске
-        $last_run = get_option('contest_accounts_auto_update_last_run', 0);
+        $last_run = get_option('contest_create_queues_last_run', 0);
 
         // Получаем информацию о следующем запланированном запуске
-        $next_run = wp_next_scheduled('contest_accounts_auto_update');
+        $next_run = wp_next_scheduled('contest_create_queues');
 
         // Получаем текущий статус обновления
         require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-account-updater.php';
@@ -867,6 +990,7 @@ class FTTrader_Settings_Page
         // Список доступных вкладок
         $tabs = [
             'settings' => 'Настройки',
+            // 'queue_protection' => 'Защита очередей', // Удалена система защиты очередей
             'logs' => 'Логи'
         ];
 
@@ -967,6 +1091,9 @@ class FTTrader_Settings_Page
             
             // Статус автоматического обновления
             $this->render_auto_update_status();
+        // } elseif ($current_tab === 'queue_protection') {
+            // // Настройки защиты очередей
+            // $this->render_queue_protection_tab();
         } elseif ($current_tab === 'logs') {
             // Проверяем nonce для вкладки логов
             if (!isset($_GET['_wpnonce']) || !wp_verify_nonce($_GET['_wpnonce'], 'view_logs_nonce')) {
@@ -1011,7 +1138,7 @@ class FTTrader_Settings_Page
                 var seconds = ("0" + date.getSeconds()).slice(-2);
                 return day + "." + month + "." + year + " " + hours + ":" + minutes + ":" + seconds;
             }
-
+            
             // Функция для расчета относительного времени
             function getRelativeTime(timestamp, isFuture = false) {
                 var now = Math.floor(Date.now() / 1000);
@@ -1121,6 +1248,9 @@ class FTTrader_Settings_Page
 
         echo '</div>';
 
+        // Подключаем класс для работы с очередями обновления
+        require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-account-updater.php';
+        
         // Получаем текущий статус обновления
         $status = Account_Updater::get_status();
         $update_history = get_option('contest_accounts_update_history', []);
@@ -1145,7 +1275,7 @@ class FTTrader_Settings_Page
 
         // Наш хук запланирован
         echo '<tr>';
-        echo '<td>Хук contest_accounts_auto_update запланирован</td>';
+        echo '<td>Хук contest_create_queues запланирован</td>';
         echo '<td>' . ($cron_status['our_hook_scheduled'] ? 'Да' : 'Нет') . '</td>';
         echo '</tr>';
 
@@ -1196,7 +1326,7 @@ class FTTrader_Settings_Page
             echo '<tbody>';
 
             foreach ($cron_status['all_scheduled_events'] as $event) {
-                $highlight = $event['hook'] === 'contest_accounts_auto_update' ? ' style="background-color: #e7f7e3;"' : '';
+                $highlight = $event['hook'] === 'contest_create_queues' ? ' style="background-color: #e7f7e3;"' : '';
                 echo '<tr' . $highlight . '>';
                 echo '<td>' . esc_html($event['hook']) . '</td>';
                 echo '<td><span class="server-time" data-timestamp="' . $event['timestamp'] . '">' .
@@ -1208,6 +1338,229 @@ class FTTrader_Settings_Page
             echo '</tbody></table>';
         }
 
+        echo '</div>';
+
+        // Отображаем активные очереди обновления
+        echo '<div class="active-update-queues">';
+        echo '<h4>Активные очереди обновления счетов</h4>';
+        
+        // Получаем информацию о всех активных очередях
+        $all_queues_info = Account_Updater::get_all_active_queues();
+        
+        if ($all_queues_info['total_running'] > 0) {
+            echo '<div class="queues-summary">';
+            echo '<p><strong>Активных очередей:</strong> ' . $all_queues_info['total_running'] . '</p>';
+            echo '<p><strong>Конкурсов с очередями:</strong> ' . $all_queues_info['contests'] . '</p>';
+            
+            // ДОБАВЛЕНО: Информация о координации параллельных очередей
+            if ($all_queues_info['total_running'] > 1) {
+                echo '<div class="parallel-coordination-info" style="margin-top: 10px; padding: 8px 12px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px;">';
+                echo '<p style="margin: 0; font-size: 12px; color: #856404; line-height: 1.4;">';
+                echo '<strong>⚡ Режим координации:</strong> Обнаружены параллельные очереди для разных конкурсов. ';
+                echo 'Система автоматически адаптирует размер пакетов и задержки для предотвращения перегрузки API сервера.';
+                echo '</p>';
+                echo '</div>';
+            }
+            
+            echo '</div>';
+            
+            foreach ($all_queues_info['queues'] as $contest_info) {
+                echo '<div class="contest-queues-section">';
+                echo '<h5 class="contest-title-toggle" data-contest-id="' . ($contest_info['contest_id'] ?? 'global') . '">';
+                echo '<span class="toggle-icon">▼</span> ';
+                echo '<strong>Конкурс:</strong> ' . esc_html($contest_info['contest_title']);
+                echo ' <span class="queues-count">(' . $contest_info['running_queues'] . '/' . $contest_info['total_queues'] . ' активных)</span>';
+                echo '</h5>';
+                
+                echo '<div class="contest-queues-list" id="contest-queues-' . ($contest_info['contest_id'] ?? 'global') . '">';
+                echo '<table class="widefat fixed" cellspacing="0">';
+                echo '<thead><tr>';
+                echo '<th style="width: 90px;">ID очереди</th>';
+                echo '<th style="width: 80px;">Статус</th>';
+                echo '<th style="width: 100px;">Прогресс</th>';
+                echo '<th style="width: 120px;">Инициатор</th>';
+                echo '<th style="width: 110px;">Время начала</th>';
+                echo '<th style="width: 110px;">Последнее обновление</th>';
+                echo '<th>Текущий счет</th>';
+                echo '</tr></thead>';
+                echo '<tbody>';
+                
+                foreach ($contest_info['queues'] as $queue) {
+                    $status_class = $queue['is_running'] ? 'running' : 'idle';
+                    $progress_percent = $queue['total'] > 0 ? round(($queue['completed'] / $queue['total']) * 100) : 0;
+                    
+                    echo '<tr class="queue-row ' . $status_class . '">';
+                    echo '<td><code>' . esc_html($queue['queue_id']) . '</code></td>';
+                    
+                    // Статус
+                    echo '<td>';
+                    if ($queue['is_running']) {
+                        echo '<span class="status-badge running">Активна</span>';
+                    } else {
+                        if (isset($queue['timeout']) && $queue['timeout']) {
+                            echo '<span class="status-badge timeout">Таймаут</span>';
+                            // Добавляем информацию о причине таймаута
+                            if (isset($queue['timeout_reason'])) {
+                                echo '<div class="timeout-reason-detail">' . esc_html($queue['timeout_reason']) . '</div>';
+                            }
+                        } else {
+                            echo '<span class="status-badge completed">Завершена</span>';
+                        }
+                    }
+                    echo '</td>';
+                    
+                    // Прогресс
+                    echo '<td>';
+                    echo $queue['completed'] . '/' . $queue['total'] . ' (' . $progress_percent . '%)';
+                    if ($queue['is_running'] && $progress_percent > 0) {
+                        echo '<div class="mini-progress-bar"><div class="mini-progress-fill" style="width: ' . $progress_percent . '%"></div></div>';
+                    }
+                    echo '</td>';
+                    
+                    // Инициатор
+                    echo '<td>';
+                    if (isset($queue['initiator'])) {
+                        $initiator = $queue['initiator'];
+                        if ($initiator['type'] === 'auto') {
+                            echo '<span class="initiator-badge auto">🤖 Авто</span>';
+                        } else {
+                            echo '<span class="initiator-badge manual">👤 ' . esc_html($initiator['user_display_name'] ?: $initiator['user_login']) . '</span>';
+                        }
+                    } else {
+                        echo '—';
+                    }
+                    echo '</td>';
+                    
+                    // Время начала
+                    echo '<td>';
+                    if (isset($queue['start_time'])) {
+                        echo '<span class="server-time" data-timestamp="' . $queue['start_time'] . '">' .
+                             date('d.m.Y H:i:s', $queue['start_time']) . '</span>';
+                    } else {
+                        echo 'Н/Д';
+                    }
+                    echo '</td>';
+                    
+                    // Последнее обновление
+                    echo '<td>';
+                    if (isset($queue['last_update'])) {
+                        echo '<span class="server-time" data-timestamp="' . $queue['last_update'] . '">' .
+                             date('d.m.Y H:i:s', $queue['last_update']) . '</span>';
+                    } else {
+                        echo 'Н/Д';
+                    }
+                    echo '</td>';
+                    
+                    // Текущий счет
+                    echo '<td>';
+                    if ($queue['is_running'] && isset($queue['accounts']) && is_array($queue['accounts'])) {
+                        $current_account = null;
+                        $pending_count = 0;
+                        
+                        foreach ($queue['accounts'] as $account_id => $account_info) {
+                            if ($account_info['status'] === 'processing') {
+                                $current_account = $account_id;
+                                break;
+                            } elseif ($account_info['status'] === 'pending') {
+                                $pending_count++;
+                            }
+                        }
+                        
+                        if ($current_account) {
+                            // Получаем номер счета из детальной информации
+                            $account_number = '#' . $current_account;
+                            if (isset($queue['accounts_details'][$current_account]['account_number'])) {
+                                $account_number = $queue['accounts_details'][$current_account]['account_number'];
+                            }
+                            echo '<strong>Обрабатывается:</strong> ' . esc_html($account_number);
+                        } elseif ($pending_count > 0) {
+                            echo 'В очереди: ' . $pending_count . ' счетов';
+                        } else {
+                            echo 'Ожидание...';
+                        }
+                        
+                        // Добавляем кнопку для показа деталей
+                        if (!empty($queue['accounts'])) {
+                            echo '<br><button class="button button-small toggle-queue-details" data-queue-id="' . esc_attr($queue['queue_id']) . '">Показать детали</button>';
+                            
+                            // ДОБАВЛЕНО: Кнопка принудительного перезапуска для диагностики зависших очередей
+                            if (!$queue['is_running'] && isset($queue['timeout']) && $queue['timeout']) {
+                                echo ' <button class="button button-small button-secondary restart-queue-btn" data-queue-id="' . esc_attr($queue['queue_id']) . '" data-contest-id="' . esc_attr($queue['contest_id']) . '" title="Принудительно перезапустить зависшую очередь для диагностики">🔄 Перезапустить</button>';
+                            }
+                        }
+                    } else {
+                        echo '—';
+                    }
+                    echo '</td>';
+                    echo '</tr>';
+                    
+                    // Добавляем строку с детальной информацией о счетах (скрытую по умолчанию)
+                    if (isset($queue['accounts']) && is_array($queue['accounts']) && !empty($queue['accounts'])) {
+                        echo '<tr class="queue-details-row" id="queue-details-' . esc_attr($queue['queue_id']) . '" style="display: none;">';
+                        echo '<td colspan="7">';
+                        echo '<div class="accounts-details">';
+                        echo '<strong>Детали по счетам:</strong>';
+                        
+                        // Используем подробную информацию о счетах, если она доступна
+                        $accounts_to_show = isset($queue['accounts_details']) ? $queue['accounts_details'] : $queue['accounts'];
+                        
+                        echo '<div class="accounts-grid">';
+                        foreach ($accounts_to_show as $account_id => $account_info) {
+                            $account_status_class = $account_info['status'];
+                            echo '<div class="account-item ' . $account_status_class . '">';
+                            
+                            // ID счета и номер
+                            echo '<span class="account-header">';
+                            echo '<span class="account-id">#' . $account_id . '</span>';
+                            if (!empty($account_info['account_number'])) {
+                                echo '<span class="account-number">' . esc_html($account_info['account_number']) . '</span>';
+                            }
+                            echo '</span>';
+                            
+                            // Информация о трейдере
+                            if (!empty($account_info['trader_name'])) {
+                                echo '<span class="trader-info">👤 ' . esc_html($account_info['trader_name']) . '</span>';
+                            }
+                            
+                            // Брокер и платформа
+                            if (!empty($account_info['broker_name']) || !empty($account_info['platform_name'])) {
+                                echo '<span class="broker-platform">';
+                                if (!empty($account_info['broker_name'])) {
+                                    echo '🏢 ' . esc_html($account_info['broker_name']);
+                                }
+                                if (!empty($account_info['platform_name'])) {
+                                    echo ' 📈 ' . esc_html($account_info['platform_name']);
+                                }
+                                echo '</span>';
+                            }
+                            
+                            // Статус обработки
+                            echo '<span class="account-status">' . ucfirst($account_info['status']) . '</span>';
+                            
+                            // Сообщение об ошибке
+                            if (!empty($account_info['message'])) {
+                                echo '<span class="account-message">' . esc_html($account_info['message']) . '</span>';
+                            }
+                            
+                            echo '</div>';
+                        }
+                        
+                        echo '</div>';
+                        echo '<button class="button button-small toggle-queue-details" data-queue-id="' . esc_attr($queue['queue_id']) . '">Скрыть детали</button>';
+                        echo '</div>';
+                        echo '</td>';
+                        echo '</tr>';
+                    }
+                }
+                
+                echo '</tbody></table>';
+                echo '</div>';
+                echo '</div>';
+            }
+        } else {
+            echo '<p class="no-queues">Нет активных очередей обновления.</p>';
+        }
+        
         echo '</div>';
 
         echo '<h3>Статус обновления счетов</h3>';
@@ -1242,7 +1595,7 @@ class FTTrader_Settings_Page
                 echo '<p><strong>Статус:</strong> <span class="status-badge idle">Ожидание</span></p>';
 
                 // Отображаем информацию о последнем запуске
-                $last_run = get_option('contest_accounts_auto_update_last_run', 0);
+                $last_run = get_option('contest_create_queues_last_run', 0);
                 if ($last_run) {
                     echo '<p><strong>Последний запуск:</strong> <span class="server-time" data-timestamp="' . $last_run . '">' .
                         date('d.m.Y H:i:s', $last_run) . '</span></p>';
@@ -1251,7 +1604,7 @@ class FTTrader_Settings_Page
                 }
 
                 // Отображаем информацию о следующем запуске
-                $next_run = wp_next_scheduled('contest_accounts_auto_update');
+                $next_run = wp_next_scheduled('contest_create_queues');
                 if ($next_run) {
                     echo '<p><strong>Следующий запуск:</strong> <span class="server-time" data-timestamp="' . $next_run . '">' .
                         date('d.m.Y H:i:s', $next_run) . '</span></p>';
@@ -1442,6 +1795,23 @@ class FTTrader_Settings_Page
 
         echo '<a href="' . admin_url('admin.php?page=fttrader_settings&tab=logs&clean_cron=1') . '" class="button">Очистить дублирующиеся задачи Cron</a>';
         echo '</div>';
+
+        // НОВАЯ СЕКЦИЯ: Управление таймаутами
+        echo '<div class="cleanup-section" style="margin-top: 30px; padding: 20px; border: 2px solid #ffa500; border-radius: 8px; background: #fff8e1;">';
+        echo '<h3>🧹 Управление зависшими очередями</h3>';
+        echo '<p>Очередь считается зависшей, если не обновлялась более 15 минут. Накопление таких очередей загромождает интерфейс и занимает память.</p>';
+        
+        // Кнопки управления
+        echo '<div class="cleanup-buttons" style="margin: 15px 0;">';
+        echo '<button type="button" id="analyze-timeouts" class="button button-secondary">🔍 Анализировать таймауты</button> ';
+        echo '<button type="button" id="cleanup-old-timeouts" class="button button-primary" style="margin-left: 10px;">🗑️ Очистить старые (24ч+)</button> ';
+        echo '<button type="button" id="cleanup-all-timeouts" class="button button-secondary" style="margin-left: 10px;">⚠️ Очистить все таймауты</button>';
+        echo '</div>';
+        
+        // Результаты анализа/очистки
+        echo '<div id="cleanup-results" style="margin-top: 15px; display: none;"></div>';
+        
+        echo '</div>'; // cleanup-section
     }
 
     /**
@@ -1868,6 +2238,243 @@ class FTTrader_Settings_Page
         
         wp_send_json_error(['message' => "Не удалось установить соединение. Код ответа: {$status_code}"]);
     }
+    
+    /*
+     * Регистрация настроек защиты очередей - УДАЛЕНО
+     */
+    /*
+    public function register_queue_protection_settings()
+    {
+        // Регистрируем группу настроек защиты очередей
+        register_setting(
+            'fttrader_queue_protection_group',
+            'fttrader_queue_protection_settings',
+            [$this, 'sanitize_queue_protection_settings']
+        );
+        
+        // Добавляем секцию настроек защиты очередей
+        add_settings_section(
+            'fttrader_queue_protection_section',
+            'Настройки автоматической защиты очередей',
+            [$this, 'render_queue_protection_section_description'],
+            'fttrader_queue_protection'
+        );
+        
+        // Поле включения/отключения мониторинга очередей
+        add_settings_field(
+            'queue_monitoring_enabled',
+            'Включить мониторинг очередей',
+            [$this, 'render_queue_protection_checkbox'],
+            'fttrader_queue_protection',
+            'fttrader_queue_protection_section',
+            [
+                'label_for' => 'queue_monitoring_enabled',
+                'field_name' => 'queue_monitoring_enabled',
+                'description' => 'Мониторинг состояния очередей и диагностика проблем (рекомендуется всегда включать)'
+            ]
+        );
+        
+        // Поле включения/отключения автоматической очистки
+        add_settings_field(
+            'queue_cleanup_enabled',
+            'Автоматически удалять зависшие очереди',
+            [$this, 'render_queue_protection_checkbox'],
+            'fttrader_queue_protection',
+            'fttrader_queue_protection_section',
+            [
+                'label_for' => 'queue_cleanup_enabled',
+                'field_name' => 'queue_cleanup_enabled',
+                'description' => 'Автоматически удалять зависшие очереди для предотвращения блокировки системы (можно отключить для отладки)'
+            ]
+        );
+        
+        // Поле максимального времени неактивности
+        add_settings_field(
+            'max_inactive_time',
+            'Максимальная неактивность (минуты)',
+            [$this, 'render_queue_protection_number'],
+            'fttrader_queue_protection',
+            'fttrader_queue_protection_section',
+            [
+                'label_for' => 'max_inactive_time',
+                'field_name' => 'max_inactive_time',
+                'description' => 'Очередь будет удалена если неактивна более указанного времени',
+                'default' => 30,
+                'min' => 5,
+                'max' => 180
+            ]
+        );
+        
+        // Поле таймаута очереди
+        add_settings_field(
+            'queue_timeout',
+            'Таймаут очереди (часы)',
+            [$this, 'render_queue_protection_number'],
+            'fttrader_queue_protection',
+            'fttrader_queue_protection_section',
+            [
+                'label_for' => 'queue_timeout',
+                'field_name' => 'queue_timeout',
+                'description' => 'Максимальное время работы очереди в часах',
+                'default' => 1,
+                'min' => 0.5,
+                'max' => 24,
+                'step' => 0.5
+            ]
+        );
+        
+        // Поле критического таймаута
+        add_settings_field(
+            'critical_timeout',
+            'Критический таймаут (часы)',
+            [$this, 'render_queue_protection_number'],
+            'fttrader_queue_protection',
+            'fttrader_queue_protection_section',
+            [
+                'label_for' => 'critical_timeout',
+                'field_name' => 'critical_timeout',
+                'description' => 'Принудительное удаление очередей старше указанного времени',
+                'default' => 2,
+                'min' => 1,
+                'max' => 48
+            ]
+        );
+        
+        // Поле интервала проверки
+        add_settings_field(
+            'check_interval',
+            'Интервал проверки (минуты)',
+            [$this, 'render_queue_protection_number'],
+            'fttrader_queue_protection',
+            'fttrader_queue_protection_section',
+            [
+                'label_for' => 'check_interval',
+                'field_name' => 'check_interval',
+                'description' => 'Как часто проверять состояние очередей',
+                'default' => 5,
+                'min' => 1,
+                'max' => 60
+            ]
+        );
+        
+        // Поле таймаута обработки одного счета
+        add_settings_field(
+            'account_processing_timeout',
+            'Таймаут обработки счета (минуты)',
+            [$this, 'render_queue_protection_number'],
+            'fttrader_queue_protection',
+            'fttrader_queue_protection_section',
+            [
+                'label_for' => 'account_processing_timeout',
+                'field_name' => 'account_processing_timeout',
+                'description' => 'Максимальное время ожидания ответа от сервера мониторинга для одного счета. Если за это время ответ не получен, счет помечается как failed и обработка продолжается',
+                'default' => 10,
+                'min' => 2,
+                'max' => 60
+            ]
+        );
+    }
+    
+    public function render_queue_protection_section_description()
+    {
+        echo '<p>Настройки автоматической защиты от зависания очередей обновления счетов.</p>';
+        echo '<p><strong>Внимание:</strong> Отключение защиты может привести к блокировке системы зависшими очередями.</p>';
+    }
+    
+    public function render_queue_protection_checkbox($args)
+    {
+        $settings = get_option('fttrader_queue_protection_settings', []);
+        $field_name = $args['field_name'];
+        $value = isset($settings[$field_name]) ? $settings[$field_name] : true; // По умолчанию включено
+        
+        echo '<label for="' . esc_attr($args['label_for']) . '">';
+        echo '<input type="checkbox" id="' . esc_attr($args['label_for']) . '" ';
+        echo 'name="fttrader_queue_protection_settings[' . esc_attr($field_name) . ']" ';
+        echo 'value="1" ' . checked(1, $value, false) . ' />';
+        echo ' ' . esc_html($args['description']);
+        echo '</label>';
+    }
+    
+    public function render_queue_protection_number($args)
+    {
+        $settings = get_option('fttrader_queue_protection_settings', []);
+        $field_name = $args['field_name'];
+        $value = isset($settings[$field_name]) ? $settings[$field_name] : $args['default'];
+        
+        echo '<input type="number" id="' . esc_attr($args['label_for']) . '" ';
+        echo 'name="fttrader_queue_protection_settings[' . esc_attr($field_name) . ']" ';
+        echo 'value="' . esc_attr($value) . '" ';
+        echo 'min="' . esc_attr($args['min']) . '" ';
+        echo 'max="' . esc_attr($args['max']) . '" ';
+        if (isset($args['step'])) {
+            echo 'step="' . esc_attr($args['step']) . '" ';
+        }
+        echo 'class="small-text" />';
+        
+        if (isset($args['description'])) {
+            echo '<p class="description">' . esc_html($args['description']) . '</p>';
+        }
+    }
+    
+    public function sanitize_queue_protection_settings($input)
+    {
+        $sanitized = [];
+        
+        // Мониторинг очередей (рекомендуется включать)
+        if (isset($input['queue_monitoring_enabled'])) {
+            $sanitized['queue_monitoring_enabled'] = (bool) $input['queue_monitoring_enabled'];
+        } else {
+            $sanitized['queue_monitoring_enabled'] = false;
+        }
+        
+        // Автоматическая очистка зависших очередей (можно отключить для отладки)
+        if (isset($input['queue_cleanup_enabled'])) {
+            $sanitized['queue_cleanup_enabled'] = (bool) $input['queue_cleanup_enabled'];
+        } else {
+            $sanitized['queue_cleanup_enabled'] = false;
+        }
+        
+        // Для совместимости сохраняем старое поле как логическое ИЛИ
+        $sanitized['queue_protection_enabled'] = $sanitized['queue_monitoring_enabled'] || $sanitized['queue_cleanup_enabled'];
+        
+        $sanitized['max_inactive_time'] = isset($input['max_inactive_time']) ? 
+            max(5, min(180, intval($input['max_inactive_time']))) : 30;
+        
+        $sanitized['queue_timeout'] = isset($input['queue_timeout']) ? 
+            max(0.5, min(24, floatval($input['queue_timeout']))) : 1;
+        
+        $sanitized['critical_timeout'] = isset($input['critical_timeout']) ? 
+            max(1, min(48, intval($input['critical_timeout']))) : 2;
+        
+        $sanitized['check_interval'] = isset($input['check_interval']) ? 
+            max(1, min(60, intval($input['check_interval']))) : 5;
+            
+        $sanitized['account_processing_timeout'] = isset($input['account_processing_timeout']) ? 
+            max(2, min(60, intval($input['account_processing_timeout']))) : 10;
+        
+        return $sanitized;
+    }
+    
+    public function render_queue_protection_tab()
+    {
+        echo '<div class="wrap">';
+        echo '<h2>Настройки защиты очередей</h2>';
+        
+        echo '<p>Здесь вы можете настроить параметры автоматической защиты очередей от зависания. ';
+        echo 'Управление очередями доступно на странице <a href="' . admin_url('edit.php?post_type=trader_contests&page=queue-monitor') . '">Мониторинг очередей</a>.</p>';
+        
+        // Форма настроек
+        echo '<form action="options.php" method="post">';
+        settings_fields('fttrader_queue_protection_group');
+        do_settings_sections('fttrader_queue_protection');
+        submit_button('Сохранить настройки защиты');
+        echo '</form>';
+        
+        echo '</div>';
+    }
+    */
+    
+
 }
 
 // Инициализация страницы настроек

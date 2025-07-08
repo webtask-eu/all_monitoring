@@ -1,4 +1,6 @@
 jQuery(document).ready(function($) {
+    // Выводим версию в консоль для отладки
+    console.log('FT Contests Admin JS loaded. Version: 1.1.0');
 
     // Логируем инициализацию скрипта для отладки
     console.log('Admin.js загружен - начало инициализации');
@@ -167,13 +169,26 @@ jQuery(document).ready(function($) {
                 
                 // Восстанавливаем выбранные серверы
                 let selectedSrv = $serversContainer.data('selected');
+                console.log('Восстанавливаем выбранные серверы:', selectedSrv);
+                
                 if (selectedSrv) {
-                    if (typeof selectedSrv === 'string') {
-                        selectedSrv = selectedSrv.split(',');
+                    if (typeof selectedSrv === 'string' && selectedSrv.trim() !== '') {
+                        selectedSrv = selectedSrv.split(',').map(s => s.trim()).filter(s => s !== '');
                     }
-                    selectedSrv.forEach(function(serverAddress) {
-                        $serversContainer.find(`input[value="${serverAddress}"]`).prop('checked', true);
-                    });
+                    
+                    if (Array.isArray(selectedSrv) && selectedSrv.length > 0) {
+                        selectedSrv.forEach(function(serverAddress) {
+                            if (serverAddress && serverAddress.trim() !== '') {
+                                let $checkbox = $serversContainer.find(`input[value="${serverAddress.trim()}"]`);
+                                if ($checkbox.length > 0) {
+                                    $checkbox.prop('checked', true);
+                                    console.log('Восстановлен сервер:', serverAddress);
+                                } else {
+                                    console.warn('Сервер не найден в списке:', serverAddress);
+                                }
+                            }
+                        });
+                    }
                 }
                 
                 // Обновляем счетчик
@@ -189,6 +204,7 @@ jQuery(document).ready(function($) {
     });
 
     // Функция для обновления счетчика выбранных серверов
+    // Version: 1.1.0-checkboxes
     function updateServersCount() {
         const checkedCount = $('#servers-container input[type="checkbox"]:checked').length;
         const $counter = $('.servers-selected-count');
@@ -1459,7 +1475,321 @@ jQuery(document).ready(function($) {
         // Инициализация обновления информации об очередях
         initActiveQueuesRefresh();
         
+        // Запускаем автообновление при загрузке страницы
+        startQueuesAutoUpdate();
+        
+        // Дополнительная отладка для поиска проблем с кнопками очередей
+        setTimeout(function() {
+            console.log('=== ОТЛАДКА ОЧЕРЕДЕЙ ===');
+            console.log('Найдено элементов .active-update-queues:', $('.active-update-queues').length);
+            console.log('Найдено кнопок .toggle-queue-details:', $('.toggle-queue-details').length);
+            console.log('Найдено заголовков .contest-title-toggle:', $('.contest-title-toggle').length);
+            console.log('Найдено строк с деталями .queue-details-row:', $('.queue-details-row').length);
+            
+            // Проверим, есть ли вообще секция очередей
+            if ($('.active-update-queues').length > 0) {
+                console.log('Содержимое секции очередей:', $('.active-update-queues')[0]);
+                
+                // Выведем все кнопки детализации
+                $('.toggle-queue-details').each(function(index) {
+                    console.log('Кнопка #' + index + ':', this, 'data-queue-id:', $(this).data('queue-id'));
+                });
+            } else {
+                console.log('Секция .active-update-queues НЕ НАЙДЕНА на странице!');
+            }
+            console.log('=== КОНЕЦ ОТЛАДКИ ===');
+        }, 1000);
+        
         // ... existing code ...
     });
 
+});
+
+// Обработчики для интерактивности очередей обновления (вне основного ready-блока)
+console.log('Регистрация обработчиков событий для очередей...');
+
+// Разворачивание/сворачивание списков очередей по конкурсам
+jQuery(document).on('click', '.contest-title-toggle', function() {
+    var $ = jQuery;
+    var contestId = $(this).data('contest-id');
+    var queuesList = $('#contest-queues-' + contestId);
+    var toggleIcon = $(this).find('.toggle-icon');
+    
+    console.log('Toggle clicked for contest:', contestId); // Для отладки
+    
+    if (queuesList.hasClass('collapsed')) {
+        queuesList.removeClass('collapsed').slideDown(200);
+        $(this).removeClass('collapsed');
+        toggleIcon.text('▼');
+    } else {
+        queuesList.addClass('collapsed').slideUp(200);
+        $(this).addClass('collapsed');
+        toggleIcon.text('▶');
+    }
+});
+console.log('✓ Обработчик .contest-title-toggle зарегистрирован');
+
+// Показ/скрытие деталей по счетам в очередях
+jQuery(document).on('click', '.toggle-queue-details', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    console.log('🔍 Клик по кнопке "Показать детали"');
+    
+    var button = jQuery(this);
+    var queueId = button.data('queue-id');
+    var detailsRow = jQuery('#queue-details-' + queueId);
+    
+    console.log('Queue ID: ' + queueId);
+    console.log('Найден элемент деталей: ' + (detailsRow.length > 0 ? 'Да' : 'Нет'));
+    
+    if (detailsRow.length > 0) {
+        if (detailsRow.is(':visible')) {
+            detailsRow.hide();
+            button.text('Показать детали');
+            console.log('✅ Скрыты детали для очереди: ' + queueId);
+        } else {
+            detailsRow.show();
+            button.text('Скрыть детали');
+            console.log('✅ Показаны детали для очереди: ' + queueId);
+        }
+    } else {
+        console.log('⚠️ Элемент деталей не найден для очереди: ' + queueId);
+    }
+    
+    return false;
+});
+
+// Тестовый обработчик для любых кликов по кнопкам
+jQuery(document).on('click', 'button', function(e) {
+    var $ = jQuery;
+    var buttonText = $(this).text().trim();
+    var buttonClasses = $(this).attr('class') || '';
+    
+    // Логируем только кнопки связанные с очередями
+    if (buttonClasses.indexOf('toggle') !== -1 || buttonText.indexOf('детали') !== -1) {
+        console.log('🔍 КЛИК ПО КНОПКЕ:', {
+            text: buttonText,
+            classes: buttonClasses,
+            element: this,
+            'data-queue-id': $(this).data('queue-id')
+        });
+    }
+});
+
+// Автообновление информации о очередях каждые 30 секунд
+var queuesUpdateInterval;
+
+function startQueuesAutoUpdate() {
+    // Проверяем, находимся ли мы на вкладке логов
+    if (window.location.href.indexOf('tab=logs') !== -1) {
+        queuesUpdateInterval = setInterval(function() {
+            // Обновляем только если есть активные очереди
+            if (jQuery('.active-update-queues .queue-row.running').length > 0) {
+                location.reload();
+            }
+        }, 30000); // 30 секунд
+    }
+}
+
+function stopQueuesAutoUpdate() {
+    if (queuesUpdateInterval) {
+        clearInterval(queuesUpdateInterval);
+        queuesUpdateInterval = null;
+    }
+}
+
+// Останавливаем автообновление при переходе на другую страницу
+jQuery(window).on('beforeunload', function() {
+    stopQueuesAutoUpdate();
+});
+
+// Обработчик для кнопок перезапуска зависших очередей
+jQuery(document).on('click', '.restart-queue-btn', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    console.log('🔄 Нажата кнопка "Перезапустить"');
+    
+    var button = jQuery(this);
+    var queueId = button.data('queue-id');
+    var contestId = button.data('contest-id');
+    
+    console.log('Queue ID: ' + queueId);
+    console.log('Contest ID: ' + contestId);
+    
+    if (!confirm('Вы уверены, что хотите принудительно перезапустить очередь ' + queueId + '?\n\nЭто действие предназначено для диагностики зависших очередей.')) {
+        return false;
+    }
+    
+    // Отключаем кнопку и показываем процесс
+    button.prop('disabled', true).text('⏳ Перезапуск...');
+    
+    // Отправляем AJAX запрос
+    jQuery.post(ajaxurl, {
+        action: 'restart_queue_diagnostics',
+        queue_id: queueId,
+        contest_id: contestId,
+        nonce: ft_trader_nonce
+    }, function(response) {
+        console.log('📨 Ответ сервера:', response);
+        
+        if (response.success) {
+            button.removeClass('button-secondary').addClass('button-primary').text('✅ Перезапущено');
+            alert('Очередь ' + queueId + ' была принудительно перезапущена.\n\nПроверьте логи сервера для диагностической информации.');
+            
+            // Обновляем страницу через 3 секунды
+            setTimeout(function() {
+                location.reload();
+            }, 3000);
+        } else {
+            button.prop('disabled', false).text('🔄 Перезапустить');
+            alert('Ошибка при перезапуске очереди: ' + (response.data.message || 'Неизвестная ошибка'));
+        }
+    }).fail(function(xhr, status, error) {
+        console.error('❌ Ошибка AJAX запроса:', status, error);
+        button.prop('disabled', false).text('🔄 Перезапустить');
+        alert('Ошибка сети при перезапуске очереди. Проверьте подключение к интернету.');
+    });
+    
+    return false;
+});
+
+// Убираем старые обработчики и заменяем на правильные
+
+// Удаляем дублирующиеся обработчики в конце файла и оставляем только эти:
+
+// Обработчик автообновления страницы при наличии активных очередей  
+jQuery(document).ready(function() {
+    // Функция автообновления для вкладки логов
+    function autoUpdateLogsTab() {
+        var activeQueuesSection = jQuery('.active-queues-section');
+        if (activeQueuesSection.length > 0) {
+            var runningQueues = activeQueuesSection.find('.status-badge.running').length;
+            
+            if (runningQueues > 0) {
+                console.log('🔄 Найдено ' + runningQueues + ' активных очередей. Обновление через 30 сек...');
+                
+                setTimeout(function() {
+                    if (window.location.href.indexOf('page=ft-trader-settings') !== -1 && 
+                        window.location.href.indexOf('tab=logs') !== -1) {
+                        console.log('♻️ Автообновление страницы логов...');
+                        window.location.reload();
+                    }
+                }, 30000);
+            }
+        }
+    }
+    
+    // Запускаем автообновление
+    autoUpdateLogsTab();
+});
+
+// Обработчики для управления таймаутами
+jQuery(document).on('click', '#analyze-timeouts', function() {
+    console.log('🔍 Анализ таймаутов...');
+    
+    var button = jQuery(this);
+    var resultsContainer = jQuery('#cleanup-results');
+    
+    // Блокируем кнопку
+    button.prop('disabled', true).text('🔍 Анализирую...');
+    resultsContainer.hide();
+    
+    jQuery.post(ajaxurl, {
+        action: 'analyze_timeouts',
+        nonce: ft_trader_nonce
+    }, function(response) {
+        console.log('📊 Результат анализа:', response);
+        
+        if (response.success) {
+            resultsContainer.html(response.data.html).show();
+            button.text('✅ Анализ завершен (' + response.data.eligible_count + ' к очистке)');
+        } else {
+            resultsContainer.html('<div class="error"><p>❌ ' + response.data.message + '</p></div>').show();
+            button.prop('disabled', false).text('🔍 Анализировать таймауты');
+        }
+    }).fail(function(xhr, status, error) {
+        console.error('❌ Ошибка анализа:', status, error);
+        resultsContainer.html('<div class="error"><p>❌ Ошибка сети: ' + error + '</p></div>').show();
+        button.prop('disabled', false).text('🔍 Анализировать таймауты');
+    });
+});
+
+jQuery(document).on('click', '#cleanup-old-timeouts', function() {
+    console.log('🗑️ Очистка старых таймаутов...');
+    
+    if (!confirm('Вы действительно хотите очистить все таймауты старше 24 часов?\n\nЭто действие необратимо!')) {
+        return;
+    }
+    
+    var button = jQuery(this);
+    var resultsContainer = jQuery('#cleanup-results');
+    
+    // Блокируем кнопку
+    button.prop('disabled', true).text('🗑️ Очищаю...');
+    resultsContainer.hide();
+    
+    jQuery.post(ajaxurl, {
+        action: 'cleanup_old_timeouts',
+        nonce: ft_trader_nonce
+    }, function(response) {
+        console.log('🗑️ Результат очистки:', response);
+        
+        if (response.success) {
+            resultsContainer.html(response.data.html).show();
+            button.removeClass('button-primary').addClass('button-secondary').text('✅ Очищено (' + response.data.cleaned_count + ')');
+            
+            // Обновляем страницу через 3 секунды
+            setTimeout(function() {
+                location.reload();
+            }, 3000);
+        } else {
+            resultsContainer.html('<div class="error"><p>❌ ' + response.data.message + '</p></div>').show();
+            button.prop('disabled', false).text('🗑️ Очистить старые (24ч+)');
+        }
+    }).fail(function(xhr, status, error) {
+        console.error('❌ Ошибка очистки:', status, error);
+        resultsContainer.html('<div class="error"><p>❌ Ошибка сети: ' + error + '</p></div>').show();
+        button.prop('disabled', false).text('🗑️ Очистить старые (24ч+)');
+    });
+});
+
+jQuery(document).on('click', '#cleanup-all-timeouts', function() {
+    console.log('⚠️ Агрессивная очистка всех таймаутов...');
+    
+    if (!confirm('⚠️ ВНИМАНИЕ! ⚠️\n\nВы собираетесь удалить ВСЕ зависшие очереди независимо от их возраста!\n\nЭто может включать недавние очереди, которые еще могут восстановиться.\n\nВы ДЕЙСТВИТЕЛЬНО уверены?')) {
+        return;
+    }
+    
+    var button = jQuery(this);
+    var resultsContainer = jQuery('#cleanup-results');
+    
+    // Блокируем кнопку
+    button.prop('disabled', true).text('⚠️ Очищаю все...');
+    resultsContainer.hide();
+    
+    jQuery.post(ajaxurl, {
+        action: 'cleanup_all_timeouts',
+        nonce: ft_trader_nonce
+    }, function(response) {
+        console.log('⚠️ Результат агрессивной очистки:', response);
+        
+        if (response.success) {
+            resultsContainer.html(response.data.html).show();
+            button.text('✅ Очищено все (' + response.data.cleaned_count + ')');
+            
+            // Обновляем страницу через 3 секунды
+            setTimeout(function() {
+                location.reload();
+            }, 3000);
+        } else {
+            resultsContainer.html('<div class="error"><p>❌ ' + response.data.message + '</p></div>').show();
+            button.prop('disabled', false).text('⚠️ Очистить все таймауты');
+        }
+    }).fail(function(xhr, status, error) {
+        console.error('❌ Ошибка агрессивной очистки:', status, error);
+        resultsContainer.html('<div class="error"><p>❌ Ошибка сети: ' + error + '</p></div>').show();
+        button.prop('disabled', false).text('⚠️ Очистить все таймауты');
+    });
 });

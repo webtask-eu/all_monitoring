@@ -126,16 +126,66 @@ $order_history = $wpdb->get_results($wpdb->prepare(
 
 $total_pages = ceil($total_history / $per_page);
 
+// Получаем первую сделку из истории (закрытые сделки)
+$first_closed_trade = $wpdb->get_row($wpdb->prepare(
+    "SELECT open_time FROM {$wpdb->prefix}contest_members_order_history 
+     WHERE account_id = %d 
+     AND type NOT IN ('balance', 'credit', 'deposit', 'withdrawal')
+     AND type NOT LIKE %s
+     AND type NOT LIKE %s
+     AND type NOT LIKE %s
+     ORDER BY open_time ASC 
+     LIMIT 1",
+    $account_id,
+    '%limit%',
+    '%stop%',
+    '%pending%'
+));
+
+// Получаем первую сделку из открытых ордеров
+$first_open_trade = $wpdb->get_row($wpdb->prepare(
+    "SELECT open_time FROM {$wpdb->prefix}contest_members_orders 
+     WHERE account_id = %d 
+     AND type NOT IN ('balance', 'credit', 'deposit', 'withdrawal')
+     AND type NOT LIKE %s
+     AND type NOT LIKE %s
+     AND type NOT LIKE %s
+     ORDER BY open_time ASC 
+     LIMIT 1",
+    $account_id,
+    '%limit%',
+    '%stop%',
+    '%pending%'
+));
+
+// Определяем самую раннюю сделку среди закрытых и открытых
+$first_trade = null;
+if ($first_closed_trade && $first_open_trade) {
+    // Если есть и те, и другие - выбираем более раннюю
+    if (strtotime($first_closed_trade->open_time) <= strtotime($first_open_trade->open_time)) {
+        $first_trade = $first_closed_trade;
+    } else {
+        $first_trade = $first_open_trade;
+    }
+} elseif ($first_closed_trade) {
+    // Если есть только закрытые
+    $first_trade = $first_closed_trade;
+} elseif ($first_open_trade) {
+    // Если есть только открытые
+    $first_trade = $first_open_trade;
+}
+
 // Находим начальный депозит
 $initial_deposit = 10000; // Значение по умолчанию
 
 // Сначала ищем в истории сделок
 $deposit_record = $wpdb->get_row($wpdb->prepare(
-    "SELECT * FROM $history_table 
-     WHERE account_id = %d AND type = 'balance'
+    "SELECT * FROM {$wpdb->prefix}contest_members_order_history 
+     WHERE account_id = %d AND type = %s
      ORDER BY open_time ASC
      LIMIT 1",
-    $account_id
+    $account_id,
+    'balance'
 ));
 
 if ($deposit_record && $deposit_record->profit > 0) {
@@ -582,9 +632,9 @@ if ($minutes_ago < 1) {
                         <select id="chart_period">
                             <option value="day">День</option>
                             <option value="week">Неделя</option>
-                            <option value="month" selected>Месяц</option>
+                            <option value="month">Месяц</option>
                             <option value="year">Год</option>
-                            <option value="all">Все время</option>
+                            <option value="all" selected>Все время</option>
                         </select>
                     </div>
                     <div id="chartLegend" class="chart-legend"></div>
@@ -972,6 +1022,49 @@ if ($minutes_ago < 1) {
                     <p class="no-orders">История сделок пуста.</p>
                 <?php endif; ?>
             </section>
+
+            <!-- История изменений счета -->
+            <section class="account-change-history">
+                <h2>История изменений счета</h2>
+                <input type="hidden" id="account_id" value="<?php echo $account_id; ?>">
+                
+                <div class="history-filters">
+                    <select id="field_filter" class="history-filter">
+                        <option value="">Все поля</option>
+                        <optgroup label="Финансовые показатели">
+                            <option value="i_bal">Баланс</option>
+                            <option value="i_equi">Средства</option>
+                            <option value="i_marg">Использованная маржа</option>
+                            <option value="i_prof">Плавающая прибыль/убыток</option>
+                            <option value="leverage">Кредитное плечо</option>
+                            <option value="i_ordtotal">Количество открытых ордеров</option>
+                            <option value="active_orders_volume">Суммарный объем открытых сделок</option>
+                            <option value="h_count">Количество записей в истории</option>
+                        </optgroup>
+                        <optgroup label="Другие параметры">
+                            <option value="pass">Пароль</option>
+                            <option value="srvMt4">Сервер MT4</option>
+                            <option value="i_firma">Брокер</option>
+                                                        <option value="i_fio">Имя</option>
+                            <option value="connection_status">Статус подключения</option>
+                        </optgroup>
+                    </select>
+
+                    <select id="period_filter" class="history-filter">
+                        <option value="all">За все время</option>
+                        <option value="day" selected>За сегодня</option>
+                        <option value="week">За неделю</option>
+                        <option value="month">За месяц</option>
+                        <option value="year">За год</option>
+                    </select>
+
+                    <button id="sort_date" class="button" data-sort="desc">
+                        <span class="dashicons dashicons-arrow-down-alt2"></span> По дате
+                    </button>
+                </div>
+
+                <div id="account-history-wrapper">Загрузка...</div>
+            </section>
         </div>
 
         <aside class="account-sidebar">
@@ -1031,6 +1124,19 @@ if ($minutes_ago < 1) {
                 <div class="account-info-item">
                     <span class="account-info-label">Регистрация в конкурсе:</span>
                     <span class="account-info-value"><?php echo date_i18n('d.m.Y', strtotime($account->registration_date)); ?></span>
+                </div>
+
+                <div class="account-info-item">
+                    <span class="account-info-label">Первая сделка:</span>
+                    <span class="account-info-value">
+                        <?php 
+                        if ($first_trade && !empty($first_trade->open_time)) {
+                            echo date_i18n('d.m.Y', strtotime($first_trade->open_time));
+                        } else {
+                            echo 'Еще не совершена';
+                        }
+                        ?>
+                    </span>
                 </div>
             </div>
 
@@ -1106,5 +1212,5 @@ if ($minutes_ago < 1) {
 
 <?php
 // Подключение JS файлов для страницы счета
-wp_enqueue_script('contest-frontend-js');
+wp_enqueue_script('ft-frontend-scripts');
 ?>

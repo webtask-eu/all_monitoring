@@ -24,7 +24,7 @@
     var AccountChart = {
         chart: null,
         accountId: 0,
-        currentPeriod: 'month', // Изменено с 'week' на 'month'
+        currentPeriod: 'all', // По умолчанию показываем весь период
         initialized: false, // Добавляем флаг инициализации
         debug: false, // Отключаем отладку
 
@@ -125,7 +125,7 @@
             this.initEvents();
 
             // Загружаем данные и рисуем график
-            this.loadChartData('month');
+            this.loadChartData('all');
 
             // Отмечаем, что инициализация произошла
             this.initialized = true;
@@ -241,7 +241,7 @@
                 data: {
                     action: 'get_account_chart_data',
                     account_id: accountId,
-                    period: 'month', // Всегда используем период "месяц" для мини-графика
+                    period: 'all', // Используем период "всё время" для мини-графика
                     nonce: ftAccountChart.nonce
                 },
                 success: function(response) {

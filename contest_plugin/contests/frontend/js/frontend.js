@@ -1,5 +1,10 @@
-// Функция обновления данных счета
+/**
+ * Frontend JavaScript для плагина конкурсов трейдеров
+ * Version: 2.1.0 (Updated: 2025-01-08) - Исправлено кеширование AJAX запросов
+ */
+
 jQuery(document).ready(function($) {
+    console.log('%c🔄 Frontend Scripts v2.1.0 загружены (08.01.2025)', 'background:#27ae60;color:white;padding:4px 8px;border-radius:3px;');
     // Отладочная информация о загрузке скрипта
     console.log('[DEBUG] frontend.js загружен');
     
@@ -438,6 +443,79 @@ jQuery(document).ready(function($) {
     
     // Обработчики для страницы отдельного счета
     if ($('.account-single-container').length > 0) {
+        // Переменная для хранения текущей страницы пагинации
+        var currentHistoryPage = 1;
+
+        // Улучшенная функция загрузки истории изменений счета с фильтрами и пагинацией
+        function loadAccountHistory(page) {
+            if (!$('#account-history-wrapper').length) return;
+
+            if (page) {
+                currentHistoryPage = page;
+            }
+
+            // Получаем ID счета
+            var accountIdValue = accountId || $('#account_id').val() || 0;
+            
+            // Подготавливаем данные для запроса с фильтрами и пагинацией
+            var data = {
+                action: 'load_account_history',
+                account_id: accountIdValue,
+                field: $('#field_filter').val() || '',
+                period: $('#period_filter').val() || 'day',
+                sort: $('#sort_date').data('sort') || 'desc',
+                page: currentHistoryPage,
+                per_page: 10,
+                _timestamp: Date.now() // Принудительная очистка кеша
+            };
+            
+            // Добавляем индикатор загрузки
+            $('#account-history-wrapper').addClass('loading');
+
+            $.ajax({
+                url: ftContestData.ajax_url,
+                type: 'POST',
+                data: data,
+                success: function(response) {
+                    $('#account-history-wrapper').html(response).removeClass('loading');
+                },
+                error: function() {
+                    $('#account-history-wrapper').html('<p class="error">Ошибка при загрузке истории</p>').removeClass('loading');
+                }
+            });
+        }
+
+        // Обработчики событий для фильтров истории (сбрасывают страницу на первую)
+        $('.history-filter').on('change', function() {
+            currentHistoryPage = 1;
+            loadAccountHistory();
+        });
+        
+        $('#sort_date').on('click', function() {
+            var $btn = $(this);
+            var currentSort = $btn.data('sort') || 'desc';
+            var newSort = currentSort === 'desc' ? 'asc' : 'desc';
+            
+            $btn.data('sort', newSort);
+            $btn.find('.dashicons')
+                .toggleClass('dashicons-arrow-down-alt2 dashicons-arrow-up-alt2');
+            
+            currentHistoryPage = 1;
+            loadAccountHistory();
+        });
+
+        // Обработчик для кнопок пагинации (используем делегирование события)
+        $(document).on('click', '.history-page-btn', function(e) {
+            e.preventDefault();
+            var page = parseInt($(this).data('page'));
+            if (page && page !== currentHistoryPage) {
+                loadAccountHistory(page);
+            }
+        });
+
+        // Начальная загрузка истории
+        loadAccountHistory();
+
         // Обработчик удаления счета
         if (!$._data(document.getElementById('delete-account-data'), 'events')) {
             $('#delete-account-data').on('click', function() {
@@ -1039,7 +1117,8 @@ jQuery(document).ready(function($) {
                         nonce: (typeof ftContestData !== 'undefined' && ftContestData.nonce) ? 
                                ftContestData.nonce : '',
                         broker_id: brokerId,
-                        platform_id: platformId
+                        platform_id: platformId,
+                        contest_id: $('#contest_id').length ? $('#contest_id').val() : 0 // Добавляем contest_id если доступен
                     },
                     success: function(response) {
                         console.log('[DEBUG] Прямой обработчик: Получен ответ с серверами:', response);

@@ -6,9 +6,11 @@ class Account_History {
         'i_equi', 
         'i_marg',
         'i_prof',
-        'active_orders_volume'
+        'active_orders_volume',
+        'leverage'
     ];
 
+    // Поля, которые отслеживаются на точные изменения (без процентных порогов)
     private $tracked_fields = [
         'pass',
         'srvMt4',
@@ -18,7 +20,6 @@ class Account_History {
         'i_fio',
         'i_cur',
         'i_dr',
-        'leverage',
         'i_ordtotal',
         'h_count',
         'connection_status' // Добавляем статус подключения
@@ -131,17 +132,13 @@ class Account_History {
                     ];
                 }
                 
-                // ОТЛАДКА v1.3.0: Проверяем на нули в новых данных и учитываем поле i_fio
+                // ИСПРАВЛЕНО v1.5.0: Убираем замену значений на -1, оставляем только логирование
                 if (empty($new_data['i_fio'])) {
-                    error_log("[ACCOUNT-HISTORY] ОТЛАДКА v1.4.0: Обнаружен 0 в {$field} при пустом i_fio - ПОЛНАЯ ДИАГНОСТИКА: " . 
+                    error_log("[ACCOUNT-HISTORY] ИСПРАВЛЕНО v1.5.0: Обнаружен 0 в {$field} при пустом i_fio - ДИАГНОСТИКА (БЕЗ ЗАМЕНЫ НА -1): " . 
                              json_encode($api_diagnostic, JSON_PRETTY_PRINT));
-                    
-                    // Заменяем нули на отладочное значение -1 только если i_fio пустое
-                    $new_data[$field] = -1; // Блок 1: Нули в данных истории при пустом i_fio
-                    error_log("[ACCOUNT-HISTORY] ОТЛАДКА v1.4.0: Блок 1 (-1): заменен 0 на -1 для поля {$field} (account_id: {$account_id})");
                 } else {
-                    // Логируем обнаружение нуля, но не заменяем его, так как i_fio заполнено
-                    error_log("[ACCOUNT-HISTORY] ОТЛАДКА v1.4.0: Обнаружен 0 в {$field}, i_fio заполнено ({$new_data['i_fio']}) - ПОЛНАЯ ДИАГНОСТИКА: " . 
+                    // Логируем обнаружение нуля, когда i_fio заполнено (вероятно, реальный ноль)
+                    error_log("[ACCOUNT-HISTORY] ИСПРАВЛЕНО v1.5.0: Обнаружен 0 в {$field}, i_fio заполнено ({$new_data['i_fio']}) - реальный ноль, сохраняем как есть: " . 
                              json_encode($api_diagnostic, JSON_PRETTY_PRINT));
                 }
             }
@@ -150,11 +147,6 @@ class Account_History {
             if ($this->check_percent_change($field, $old_data[$field], $new_data[$field])) {
                 // Вычисляем процент изменения для финансовых показателей
                 $percent_change = $this->calculate_percent_change($old_data[$field], $new_data[$field]);
-                
-                // Проверяем, не содержат ли данные подозрительных паттернов
-                if ($new_data[$field] === -1 || $old_data[$field] === -1) {
-                    error_log("[ACCOUNT-HISTORY] ОТЛАДКА v1.4.0: Запись с -1 добавлена в историю: field={$field}, old={$old_data[$field]}, new={$new_data[$field]}, percent={$percent_change}, account_id={$account_id}");
-                }
                 
                 // Вставляем запись в историю
                 $wpdb->insert(
@@ -221,6 +213,13 @@ class Account_History {
             case 'active_orders_volume':
                 return esc_html($value) . ' лот.';
                 break;
+            case 'leverage':
+                return '1:' . intval($value);
+                break;
+            case 'pass':
+                // Показываем только звездочки для безопасности
+                return str_repeat('*', min(strlen($value), 8));
+                break;
             // Другие форматирования...
             default:
                 return $value;
@@ -247,7 +246,7 @@ class Account_History {
 
 // Добавляем в класс Account_History новый метод:
 
-public function get_filtered_history($account_id, $field = '', $period = 'all', $sort = 'desc') {
+public function get_filtered_history($account_id, $field = '', $period = 'all', $sort = 'desc', $page = 1, $per_page = 10) {
     global $wpdb;
     $history_table = $wpdb->prefix . 'contest_members_history';
     
@@ -276,11 +275,33 @@ public function get_filtered_history($account_id, $field = '', $period = 'all', 
             break;
     }
 
+    // Получаем общее количество записей
+    $count_sql = "SELECT COUNT(*) FROM {$history_table} WHERE " . implode(' AND ', $where);
+    $total_items = $wpdb->get_var($wpdb->prepare($count_sql, $params));
+
+    // Вычисляем смещение для пагинации
+    $page = max(1, (int)$page);
+    $per_page = max(1, (int)$per_page);
+    $offset = ($page - 1) * $per_page;
+
+    // Основной запрос с пагинацией
     $sql = "SELECT * FROM {$history_table} 
             WHERE " . implode(' AND ', $where) . " 
-            ORDER BY change_date " . ($sort === 'desc' ? 'DESC' : 'ASC');
+            ORDER BY change_date " . ($sort === 'desc' ? 'DESC' : 'ASC') . "
+            LIMIT %d OFFSET %d";
+    
+    $params[] = $per_page;
+    $params[] = $offset;
 
-    return $wpdb->get_results($wpdb->prepare($sql, $params));
+    $results = $wpdb->get_results($wpdb->prepare($sql, $params));
+
+    return [
+        'results' => $results,
+        'total_items' => $total_items,
+        'total_pages' => ceil($total_items / $per_page),
+        'current_page' => $page,
+        'per_page' => $per_page
+    ];
 }
 
 /**

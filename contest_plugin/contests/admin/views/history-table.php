@@ -24,19 +24,31 @@
                         'srvMt4' => 'Сервер MT4',
                         'i_firma' => 'Брокер',
                         'i_fio' => 'Имя',
-                        'i_ordtotal' => 'Общее количество открытых ордеров',
+                        'i_ordtotal' => 'Количество открытых ордеров',
                         'h_count' => 'Количество записей в истории (Trade History Count)',
-                        'connection_status' => 'Статус подключения' // Добавляем новое поле
+                        'connection_status' => 'Статус подключения',
+                        'active_orders_volume' => 'Суммарный объем открытых сделок',
+                        'leverage' => 'Кредитное плечо'
                     ];
                     echo isset($field_names[$change->field_name]) ? 
                           $field_names[$change->field_name] : 
                           $change->field_name;
                     ?>
                 </td>
-                <td><?php echo esc_html($change->old_value); ?></td>
                 <td>
                     <?php 
-                    // Специальное форматирование для статуса подключения
+                    if ($change->field_name === 'leverage') {
+                        echo '1:' . intval($change->old_value);
+                    } elseif ($change->field_name === 'pass') {
+                        echo str_repeat('*', min(strlen($change->old_value), 8));
+                    } else {
+                        echo esc_html($change->old_value);
+                    }
+                    ?>
+                </td>
+                <td>
+                    <?php 
+                    // Специальное форматирование для разных типов полей
                     if ($change->field_name === 'connection_status') {
                         if ($change->new_value === 'connected') {
                             echo '<span style="color: green;">Подключен</span>';
@@ -46,12 +58,15 @@
                                 : '';
                             echo '<span style="color: red;">Отключен' . $error_info . '</span>';
                         }
+                    } elseif ($change->field_name === 'leverage') {
+                        echo '1:' . intval($change->new_value);
+                    } elseif ($change->field_name === 'pass') {
+                        echo str_repeat('*', min(strlen($change->new_value), 8));
                     } else {
                         echo esc_html($change->new_value);
                     }
                     ?>
                 </td>
-                <td><?php echo esc_html($change->new_value); ?></td>
                 <td>
                     <?php if ($change->change_percent !== null): ?>
                         <span class="change-percent <?php echo $change->change_percent > 0 ? 'positive' : 'negative'; ?>">
@@ -70,27 +85,37 @@
 </table>
 
 <?php 
-// Добавляем выпадающий список с номерами страниц если есть данные и более одной страницы
-if (!empty($history_data['results']) && $history_data['total_pages'] > 1): 
+// Добавляем пагинацию если есть данные о пагинации и более одной страницы
+if (isset($pagination) && $pagination['total_pages'] > 1): 
 ?>
-<div class="page-navigation">
-    <form method="get" action="">
+<div class="history-pagination" style="margin-top: 15px; text-align: center;">
+    <div class="pagination-info" style="margin-bottom: 10px;">
+        Показано <?php echo (($pagination['current_page'] - 1) * $pagination['per_page'] + 1); ?>-<?php echo min($pagination['current_page'] * $pagination['per_page'], $pagination['total_items']); ?> из <?php echo $pagination['total_items']; ?> записей
+    </div>
+    
+    <div class="pagination-controls">
+        <?php if ($pagination['current_page'] > 1): ?>
+            <button type="button" class="button history-page-btn" data-page="1">« Первая</button>
+            <button type="button" class="button history-page-btn" data-page="<?php echo $pagination['current_page'] - 1; ?>">‹ Назад</button>
+        <?php endif; ?>
+        
         <?php 
-        // Сохраняем все существующие GET параметры
-        foreach ($_GET as $key => $value) {
-            if ($key !== 'page_num') {
-                echo '<input type="hidden" name="' . esc_attr($key) . '" value="' . esc_attr($value) . '">';
-            }
-        }
+        // Показываем номера страниц (максимум 5)
+        $start_page = max(1, $pagination['current_page'] - 2);
+        $end_page = min($pagination['total_pages'], $pagination['current_page'] + 2);
+        
+        for ($i = $start_page; $i <= $end_page; $i++): 
         ?>
-        <label for="page-select">Страница:</label>
-        <select name="page_num" id="page-select" onchange="this.form.submit()">
-            <?php for ($i = 1; $i <= $history_data['total_pages']; $i++): ?>
-                <option value="<?php echo $i; ?>" <?php selected($history_data['current_page'], $i); ?>>
-                    <?php echo $i; ?> из <?php echo $history_data['total_pages']; ?>
-                </option>
-            <?php endfor; ?>
-        </select>
-    </form>
+            <button type="button" class="button <?php echo $i == $pagination['current_page'] ? 'button-primary' : 'history-page-btn'; ?>" 
+                    data-page="<?php echo $i; ?>" <?php echo $i == $pagination['current_page'] ? 'disabled' : ''; ?>>
+                <?php echo $i; ?>
+            </button>
+        <?php endfor; ?>
+        
+        <?php if ($pagination['current_page'] < $pagination['total_pages']): ?>
+            <button type="button" class="button history-page-btn" data-page="<?php echo $pagination['current_page'] + 1; ?>">Вперед ›</button>
+            <button type="button" class="button history-page-btn" data-page="<?php echo $pagination['total_pages']; ?>">Последняя »</button>
+        <?php endif; ?>
+    </div>
 </div>
 <?php endif; ?>

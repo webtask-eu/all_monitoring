@@ -67,12 +67,12 @@ if (class_exists('Contest_Cron_Manager')) {
 }
 
 // Тест 2: Проверка регистрации хука
-output_message("Тест 2: Проверка регистрации хука contest_accounts_auto_update", "info");
+output_message("Тест 2: Проверка регистрации хука contest_create_queues", "info");
 
 // Проверяем, зарегистрирован ли хук
 global $wp_filter;
-if (isset($wp_filter['contest_accounts_auto_update'])) {
-    $actions = $wp_filter['contest_accounts_auto_update']->callbacks;
+if (isset($wp_filter['contest_create_queues'])) {
+    $actions = $wp_filter['contest_create_queues']->callbacks;
     $found = false;
     
     // Проходимся по всем колбэкам и ищем наш метод
@@ -82,36 +82,36 @@ if (isset($wp_filter['contest_accounts_auto_update'])) {
                 $callback['function'][0] === 'Account_Updater' && 
                 $callback['function'][1] === 'run_auto_update') {
                 $found = true;
-                output_message("Хук contest_accounts_auto_update для метода Account_Updater::run_auto_update найден (приоритет: {$priority})", "success");
+                output_message("Хук contest_create_queues для метода Account_Updater::run_auto_update найден (приоритет: {$priority})", "success");
                 break 2;
             }
         }
     }
     
     if (!$found) {
-        output_message("Хук contest_accounts_auto_update зарегистрирован, но обработчик Account_Updater::run_auto_update не найден", "error");
+        output_message("Хук contest_create_queues зарегистрирован, но обработчик Account_Updater::run_auto_update не найден", "error");
     }
 } else {
-    output_message("Хук contest_accounts_auto_update не зарегистрирован", "error");
+    output_message("Хук contest_create_queues не зарегистрирован", "error");
 }
 
 // Тест 3: Проверка планирования WP Cron
 output_message("Тест 3: Проверка планирования WP Cron", "info");
 
-$next_scheduled = wp_next_scheduled('contest_accounts_auto_update');
+$next_scheduled = wp_next_scheduled('contest_create_queues');
 if ($next_scheduled) {
     $time_diff = $next_scheduled - time();
     $human_readable = human_time_diff(time(), $next_scheduled);
     output_message("Следующее выполнение хука запланировано на " . date('Y-m-d H:i:s', $next_scheduled) . " (через {$human_readable})", "success");
 } else {
-    output_message("Хук contest_accounts_auto_update не запланирован в WP Cron", "error");
+    output_message("Хук contest_create_queues не запланирован в WP Cron", "error");
     
     // Пробуем восстановить расписание
     output_message("Пытаемся восстановить расписание...", "info");
     Contest_Cron_Manager::ensure_scheduled_events();
     
     // Проверяем еще раз
-    $next_scheduled = wp_next_scheduled('contest_accounts_auto_update');
+    $next_scheduled = wp_next_scheduled('contest_create_queues');
     if ($next_scheduled) {
         output_message("Расписание успешно восстановлено. Следующее выполнение: " . date('Y-m-d H:i:s', $next_scheduled), "success");
     } else {
@@ -135,7 +135,7 @@ if ($auto_update_enabled) {
 // Тест 5: Проверка времени последнего запуска
 output_message("Тест 5: Проверка времени последнего запуска", "info");
 
-$last_run = get_option('contest_accounts_auto_update_last_run', 0);
+$last_run = get_option('contest_create_queues_last_run', 0);
 if ($last_run > 0) {
     $time_passed = time() - $last_run;
     $human_readable = human_time_diff($last_run, time());
@@ -186,7 +186,7 @@ try {
     }
     
     // Проверяем время последнего запуска после выполнения метода
-    $new_last_run = get_option('contest_accounts_auto_update_last_run', 0);
+    $new_last_run = get_option('contest_create_queues_last_run', 0);
     if ($new_last_run > $last_run) {
         output_message("Метод run_auto_update успешно выполнен и обновил время последнего запуска", "success");
     } else {
@@ -247,7 +247,7 @@ echo "<h2>Возможные решения:</h2>";
 echo "<ol>";
 echo "<li>Если WP Cron отключен (DISABLE_WP_CRON = true), убедитесь, что системный Cron корректно настроен для вызова wp-cron.php.</li>";
 echo "<li>Проверьте, включено ли автоматическое обновление в настройках плагина.</li>";
-echo "<li>Если хук не зарегистрирован, проверьте файл class-account-updater.php и убедитесь, что строка с add_action('contest_accounts_auto_update', ...) не отсутствует или не закомментирована.</li>";
+echo "<li>Если хук не зарегистрирован, проверьте файл class-account-updater.php и убедитесь, что строка с add_action('contest_create_queues', ...) не отсутствует или не закомментирована.</li>";
 echo "<li>Если в системе нет активных конкурсов, метод run_auto_update не будет обновлять счета.</li>";
 echo "<li>Проверьте, что настройки интервала обновления корректны в разделе настроек плагина.</li>";
 echo "<li>Проверьте журнал ошибок PHP для выявления возможных ошибок при выполнении метода run_auto_update.</li>";

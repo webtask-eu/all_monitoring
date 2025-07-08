@@ -61,7 +61,7 @@ function patched_run_auto_update() {
     debug_log("Запуск patched_run_auto_update в " . date('Y-m-d H:i:s'));
     
     // Получаем время последнего автообновления
-    $last_run = get_option('contest_accounts_auto_update_last_run', 0);
+    $last_run = get_option('contest_create_queues_last_run', 0);
     $now = time();
     
     debug_log("Последний запуск: " . ($last_run ? date('Y-m-d H:i:s', $last_run) : 'Никогда'));
@@ -84,7 +84,7 @@ function patched_run_auto_update() {
     }
     
     // Обновляем время последнего запуска
-    update_option('contest_accounts_auto_update_last_run', $now);
+    update_option('contest_create_queues_last_run', $now);
     debug_log("Обновлено время последнего запуска на " . date('Y-m-d H:i:s', $now));
     
     // Выбираем активные конкурсы и группируем счета по конкурсам
@@ -159,7 +159,7 @@ if (isset($_GET['force_run']) && $_GET['force_run'] === '1') {
     echo "<pre>" . print_r($settings, true) . "</pre>";
     
     // Получаем время последнего запуска
-    $last_run = get_option('contest_accounts_auto_update_last_run', 0);
+    $last_run = get_option('contest_create_queues_last_run', 0);
     echo "<h3>Информация о последнем запуске:</h3>";
     if ($last_run > 0) {
         echo "<p>Последний запуск: " . date('Y-m-d H:i:s', $last_run) . " (" . human_time_diff($last_run, time()) . " назад)</p>";
@@ -209,9 +209,9 @@ if (isset($_GET['force_run']) && $_GET['force_run'] === '1') {
     
     // Проверяем хук
     global $wp_filter;
-    echo "<h3>Статус хука contest_accounts_auto_update:</h3>";
-    if (isset($wp_filter['contest_accounts_auto_update'])) {
-        $actions = $wp_filter['contest_accounts_auto_update']->callbacks;
+    echo "<h3>Статус хука contest_create_queues:</h3>";
+    if (isset($wp_filter['contest_create_queues'])) {
+        $actions = $wp_filter['contest_create_queues']->callbacks;
         $found = false;
         
         foreach ($actions as $priority => $callbacks) {
@@ -219,7 +219,7 @@ if (isset($_GET['force_run']) && $_GET['force_run'] === '1') {
                 if (is_array($callback['function']) && 
                     $callback['function'][0] === 'Account_Updater' && 
                     $callback['function'][1] === 'run_auto_update') {
-                    echo "<p style='color: green;'>Хук contest_accounts_auto_update для метода Account_Updater::run_auto_update найден (приоритет: {$priority})</p>";
+                    echo "<p style='color: green;'>Хук contest_create_queues для метода Account_Updater::run_auto_update найден (приоритет: {$priority})</p>";
                     $found = true;
                     break 2;
                 }
@@ -227,10 +227,10 @@ if (isset($_GET['force_run']) && $_GET['force_run'] === '1') {
         }
         
         if (!$found) {
-            echo "<p style='color: red;'>Хук contest_accounts_auto_update зарегистрирован, но обработчик Account_Updater::run_auto_update не найден</p>";
+            echo "<p style='color: red;'>Хук contest_create_queues зарегистрирован, но обработчик Account_Updater::run_auto_update не найден</p>";
         }
     } else {
-        echo "<p style='color: red;'>Хук contest_accounts_auto_update не зарегистрирован</p>";
+        echo "<p style='color: red;'>Хук contest_create_queues не зарегистрирован</p>";
     }
     
     // Форма для принудительного запуска
@@ -240,8 +240,8 @@ if (isset($_GET['force_run']) && $_GET['force_run'] === '1') {
     // Возможные решения проблемы
     echo "<h2>Возможные решения проблемы:</h2>";
     echo "<ol>";
-    echo "<li>Если отсутствует хук contest_accounts_auto_update, добавьте в файл конкурса следующий код:";
-    echo "<pre>add_action('contest_accounts_auto_update', ['Account_Updater', 'run_auto_update']);</pre></li>";
+    echo "<li>Если отсутствует хук contest_create_queues, добавьте в файл конкурса следующий код:";
+    echo "<pre>add_action('contest_create_queues', ['Account_Updater', 'run_auto_update']);</pre></li>";
     
     echo "<li>Если у вас нет активных конкурсов, функция обновления не будет работать. Измените статус хотя бы одного конкурса на 'active'.</li>";
     
@@ -252,7 +252,7 @@ if (isset($_GET['force_run']) && $_GET['force_run'] === '1') {
     echo "<pre>*/15 * * * * wget -q -O /dev/null 'http://example.com/wp-cron.php?doing_wp_cron' > /dev/null 2>&1</pre></li>";
     
     echo "<li>Если функция run_auto_update не запускается из-за интервала, попробуйте сбросить время последнего запуска:";
-    echo "<pre>delete_option('contest_accounts_auto_update_last_run');</pre></li>";
+    echo "<pre>delete_option('contest_create_queues_last_run');</pre></li>";
     echo "</ol>";
 }
 

@@ -84,14 +84,14 @@ class Contest_Cron_Manager
         
         if (is_array($crons)) {
             foreach ($crons as $timestamp => $hooks) {
-                if (isset($hooks['contest_accounts_auto_update'])) {
+                if (isset($hooks['contest_create_queues'])) {
                     if ($found_timestamp === 0) {
                         // Сохраняем первое найденное событие
                         $found_timestamp = $timestamp;
                     } else {
                         // Удаляем все последующие события
-                        foreach ($hooks['contest_accounts_auto_update'] as $key => $event) {
-                            wp_unschedule_event($timestamp, 'contest_accounts_auto_update', $event['args'] ?? []);
+                        foreach ($hooks['contest_create_queues'] as $key => $event) {
+                            wp_unschedule_event($timestamp, 'contest_create_queues', $event['args'] ?? []);
                             $cleaned++;
                         }
                     }
@@ -124,9 +124,9 @@ class Contest_Cron_Manager
         $crons = _get_cron_array();
         if (is_array($crons)) {
             foreach ($crons as $timestamp => $hooks) {
-                if (isset($hooks['contest_accounts_auto_update'])) {
-                    foreach ($hooks['contest_accounts_auto_update'] as $key => $event) {
-                        wp_unschedule_event($timestamp, 'contest_accounts_auto_update', $event['args'] ?? []);
+                if (isset($hooks['contest_create_queues'])) {
+                    foreach ($hooks['contest_create_queues'] as $key => $event) {
+                        wp_unschedule_event($timestamp, 'contest_create_queues', $event['args'] ?? []);
                     }
                 }
                 
@@ -139,7 +139,7 @@ class Contest_Cron_Manager
         }
         
         // Теперь планируем новые события
-        wp_schedule_event(time(), 'contest_auto_update', 'contest_accounts_auto_update');
+        wp_schedule_event(time(), 'contest_auto_update', 'contest_create_queues');
         wp_schedule_event(time(), 'contest_hourly_check', 'contest_accounts_disqualification_check');
         wp_schedule_event(time(), 'contest_registration_check', 'contest_registration_status_check');
     }
@@ -151,9 +151,9 @@ class Contest_Cron_Manager
     public static function deactivate()
     {
         // Отменяем запланированные задачи
-        $timestamp = wp_next_scheduled('contest_accounts_auto_update');
+        $timestamp = wp_next_scheduled('contest_create_queues');
         if ($timestamp) {
-            wp_unschedule_event($timestamp, 'contest_accounts_auto_update');
+            wp_unschedule_event($timestamp, 'contest_create_queues');
         }
         
         $timestamp = wp_next_scheduled('contest_accounts_disqualification_check');
@@ -172,9 +172,9 @@ class Contest_Cron_Manager
      */
     public static function ensure_scheduled_events() {
         // Проверяем, настроено ли автоматическое обновление счетов
-        $auto_events = wp_next_scheduled('contest_accounts_auto_update');
+        $auto_events = wp_next_scheduled('contest_create_queues');
         if ($auto_events === false) {
-            wp_schedule_event(time(), 'contest_auto_update', 'contest_accounts_auto_update');
+            wp_schedule_event(time(), 'contest_auto_update', 'contest_create_queues');
         }
         
         // Проверяем, настроена ли автоматическая проверка дисквалификации
@@ -204,7 +204,7 @@ class Contest_Cron_Manager
             self::log_cron_execution();
             
             // Запускаем обновление с явной установкой флага is_auto_update в true
-            do_action('contest_accounts_auto_update');
+            do_action('contest_create_queues');
             
             // Запускаем проверку условий дисквалификации сразу после обновления счетов
             self::run_disqualification_check_now();
@@ -238,10 +238,10 @@ class Contest_Cron_Manager
     {
         $status = array(
             'is_cron_enabled' => !defined('DISABLE_WP_CRON') || !DISABLE_WP_CRON,
-            'next_scheduled' => wp_next_scheduled('contest_accounts_auto_update'),
+            'next_scheduled' => wp_next_scheduled('contest_create_queues'),
             'all_scheduled_events' => array(),
             'registered_intervals' => wp_get_schedules(),
-            'last_run' => get_option('contest_accounts_auto_update_last_run', 0),
+            'last_run' => get_option('contest_create_queues_last_run', 0),
             'current_time' => time(),
             'wp_time' => current_time('timestamp'),
             'auto_update_settings' => get_option('fttrader_auto_update_settings', array())
@@ -267,7 +267,7 @@ class Contest_Cron_Manager
         // Проверяем, есть ли наш хук в запланированных событиях
         $status['our_hook_scheduled'] = false;
         foreach ($status['all_scheduled_events'] as $event) {
-            if ($event['hook'] === 'contest_accounts_auto_update') {
+            if ($event['hook'] === 'contest_create_queues') {
                 $status['our_hook_scheduled'] = true;
                 break;
             }

@@ -3,7 +3,7 @@
 Plugin Name: FT Trader Contests
 Plugin URI: https://intellarax.com
 Description: Плагин для проведения конкурсов трейдеров. Добавляет в админку тип записи "Конкурсы трейдеров" со всеми необходимыми полями.
-Version: 1.0
+Version: 1.1.9
 Author: Yuriy Dzen
 Author URI: https://intellarax.com
 Text Domain: ft-trader-contests
@@ -14,6 +14,11 @@ License: GPL2
 // Определяем константу с путем к основному файлу плагина
 if (!defined('FTTRADER_PLUGIN_FILE')) {
     define('FTTRADER_PLUGIN_FILE', __FILE__);
+}
+
+// Определяем константу версии плагина
+if (!defined('FTTRADER_PLUGIN_VERSION')) {
+    define('FTTRADER_PLUGIN_VERSION', '1.1.9');
 }
 
 // Подключаем файл менеджера Cron
@@ -36,6 +41,15 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-account-updater.php';
 
 // Подключаем класс для проверки условий дисквалификации
 require_once plugin_dir_path(__FILE__) . 'includes/class-disqualification-checker.php';
+
+// Подключаем классы для работы с очередями
+// require_once plugin_dir_path(__FILE__) . 'includes/class-queue-protection.php'; // Удалена система защиты очередей
+require_once plugin_dir_path(__FILE__) . 'includes/class-queue-admin.php';
+
+// Подключаем автономный cron (заменяет функциональность fortrader-settings.php)
+require_once plugin_dir_path(__FILE__) . 'includes/class-standalone-cron.php';
+
+// Примечание: ITX_Queue_Admin инициализируется в функции fttradingapi_init_queue_classes()
 
 // Подключаем новый фронтенд
 require_once plugin_dir_path(__FILE__) . 'includes/front-templates.php';
@@ -79,10 +93,24 @@ function fttradingapi_activate() {
     // Создаем базовые записи в справочниках, если они пусты
     fttradingapi_create_default_reference_data();
     
+    // Инициализируем автоматическое обновление (включаем по умолчанию)
+    fttradingapi_initialize_auto_update();
+    
     // Сбрасываем правила перезаписи
     flush_rewrite_rules();
 }
 register_activation_hook(__FILE__, 'fttradingapi_activate');
+
+/**
+ * Инициализация классов очередей
+ */
+function fttradingapi_init_queue_classes() {
+    // Инициализируем админ-панель очередей только в админке (один раз)
+    if (is_admin() && !isset($GLOBALS['itx_queue_admin'])) {
+        $GLOBALS['itx_queue_admin'] = new ITX_Queue_Admin();
+    }
+}
+add_action('init', 'fttradingapi_init_queue_classes');
 
 /**
  * Деактивация плагина
@@ -1225,10 +1253,15 @@ function fttradingapi_save_contest_data($post_id) {
     if (isset($_POST['fttradingapi_contest_data']) && is_array($_POST['fttradingapi_contest_data'])) {
         $raw_data = $_POST['fttradingapi_contest_data'];
 
+        // Обработка серверов - проверяем есть ли выбранные серверы
         if (isset($raw_data['servers']) && is_array($raw_data['servers'])) {
             $servers_array = array_map('sanitize_text_field', $raw_data['servers']);
             $raw_data['servers'] = implode("\n", $servers_array);
             $raw_data['server'] = $servers_array[0] ?? '';
+        } else {
+            // Если серверы не выбраны, очищаем поля
+            $raw_data['servers'] = '';
+            $raw_data['server'] = '';
         }
 
         $data = array_map('sanitize_text_field', $raw_data);
@@ -1689,6 +1722,21 @@ function fttradingapi_load_trader_statistics_template($template) {
 }
 add_filter('template_include', 'fttradingapi_load_trader_statistics_template');
 
+/**
+ * Добавляем версию плагина в футер админки
+ */
+function fttradingapi_admin_footer_version() {
+    $screen = get_current_screen();
+    
+    // Показываем только на страницах нашего плагина
+    if ($screen && strpos($screen->id, 'trader_contests') !== false) {
+        echo '<div style="position: fixed; bottom: 10px; right: 10px; background: #f1f1f1; padding: 5px 10px; border-radius: 3px; font-size: 11px; color: #666; z-index: 9999; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">';
+        echo 'FT Contests Plugin v.' . FTTRADER_PLUGIN_VERSION;
+        echo '</div>';
+    }
+}
+add_action('admin_footer', 'fttradingapi_admin_footer_version');
+
 // Закомментировано, так как функция fttradingapi_init нигде не определена
 // add_action('wp_loaded', 'fttradingapi_init', 30);
 
@@ -1835,4 +1883,87 @@ function fttradingapi_create_default_reference_data() {
         error_log("Добавлены базовые серверы брокеров");
     }
 }
+
+/**
+ * Инициализирует автоматическое обновление при активации плагина
+ */
+function fttradingapi_initialize_auto_update() {
+    // Создаем настройки автоматического обновления по умолчанию
+    $default_settings = array(
+        'fttrader_auto_update_enabled' => true,     // Включаем автоматическое обновление
+        'fttrader_auto_update_interval' => 300,     // Каждые 5 минут
+        'fttrader_auto_update_batch_size' => 5,     // По 5 счетов за раз
+        'fttrader_auto_update_timeout' => 30,       // Таймаут очередей 30 минут
+        'fttrader_api_timeout' => 30,               // HTTP таймаут запросов к API (секунды)
+        'fttrader_auto_update_last_run' => 0
+    );
+    
+    // Получаем текущие настройки
+    $existing_settings = get_option('fttrader_auto_update_settings', array());
+    
+    // Объединяем с настройками по умолчанию (не перезаписываем существующие)
+    $settings = array_merge($default_settings, $existing_settings);
+    
+    // Сохраняем настройки
+    update_option('fttrader_auto_update_settings', $settings);
+    
+    // Настраиваем расписание cron
+    if (class_exists('Account_Updater')) {
+        Account_Updater::setup_auto_update_schedule();
+    }
+}
+
+/**
+ * Регистрирует кастомные интервалы cron
+ */
+function fttradingapi_add_cron_intervals($schedules) {
+    // Добавляем интервал в 5 минут
+    $schedules['contest_auto_update'] = array(
+        'interval' => 300, // 5 минут в секундах
+        'display' => 'Каждые 5 минут'
+    );
+    
+    return $schedules;
+}
+add_filter('cron_schedules', 'fttradingapi_add_cron_intervals');
+
+// Убеждаемся, что хуки обновления регистрируются после загрузки всех классов
+add_action('plugins_loaded', function() {
+    // Регистрируем хук для автоматического обновления
+    if (class_exists('Account_Updater')) {
+        add_action('contest_create_queues', ['Account_Updater', 'run_auto_update']);
+    }
+});
+
+add_action( 'plugins_loaded', function () {
+    // Миграция старых ключей настроек авто-обновления (v2025-07)
+    $settings = get_option( 'fttrader_auto_update_settings', [] );
+    if ( empty( $settings ) ) {
+        return;
+    }
+
+    $map = [
+        'enabled'                 => 'fttrader_auto_update_enabled',
+        'create_queue_interval'   => 'fttrader_auto_update_interval',
+        'batch_size'              => 'fttrader_batch_size',
+        'max_execution_time'      => 'fttrader_max_execution_time',
+        'connection_timeout'      => 'fttrader_connection_timeout',
+    ];
+
+    $changed = false;
+    foreach ( $map as $old => $new ) {
+        if ( isset( $settings[ $old ] ) && ! isset( $settings[ $new ] ) ) {
+            $settings[ $new ] = $settings[ $old ];
+            unset( $settings[ $old ] );
+            $changed = true;
+        }
+    }
+
+    if ( $changed ) {
+        update_option( 'fttrader_auto_update_settings', $settings );
+        if ( class_exists( 'Account_Updater' ) ) {
+            Account_Updater::setup_auto_update_schedule();
+        }
+    }
+} );
 

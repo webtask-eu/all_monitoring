@@ -29,7 +29,7 @@ class Account_AJAX_Handlers {
 
         $contest_id = isset($_POST['contest_id']) ? intval($_POST['contest_id']) : 0;
         $top_count = isset($_POST['top_count']) ? intval($_POST['top_count']) : 3;
-        $period = isset($_POST['period']) ? sanitize_text_field($_POST['period']) : 'week';
+        $period = isset($_POST['period']) ? sanitize_text_field($_POST['period']) : 'all';
         
         if (!$contest_id) {
             wp_send_json_error(['message' => 'ID конкурса не указан']);
@@ -49,7 +49,7 @@ class Account_AJAX_Handlers {
 
         
         $account_id = isset($_POST['account_id']) ? intval($_POST['account_id']) : 0;
-        $period = isset($_POST['period']) ? sanitize_text_field($_POST['period']) : 'week';
+        $period = isset($_POST['period']) ? sanitize_text_field($_POST['period']) : 'all';
         
         if (!$account_id) {
             wp_send_json_error(['message' => 'ID счета не указан']);

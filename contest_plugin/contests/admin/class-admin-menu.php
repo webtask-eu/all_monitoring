@@ -45,8 +45,8 @@ function enqueue_admin_scripts() {
     // Проверяем, находимся ли мы на странице нашего плагина
     if (strpos($screen->id, 'trader_contests') !== false) {
         // Общие стили и скрипты для всех страниц плагина
-        wp_enqueue_style('ft-trader-admin-style', plugin_dir_url(__FILE__) . 'css/admin.css', array(), time());
-        wp_enqueue_script('ft-trader-admin', plugin_dir_url(__FILE__) . 'js/admin.js', array('jquery'), time(), true);
+        wp_enqueue_style('ft-trader-admin-style', plugin_dir_url(__FILE__) . 'css/admin.css', array(), FTTRADER_PLUGIN_VERSION);
+        wp_enqueue_script('ft-trader-admin', plugin_dir_url(__FILE__) . 'js/admin.js', array('jquery'), FTTRADER_PLUGIN_VERSION, true);
         
         // Добавляем локализацию для скриптов
         wp_localize_script('ft-trader-admin', 'ftTraderAdmin', array(

@@ -602,7 +602,8 @@
                     action: 'get_broker_servers',
                     nonce: ftContestData.nonce,
                     broker_id: brokerId,
-                    platform_id: platformId
+                    platform_id: platformId,
+                    contest_id: $('#contest_id').length ? $('#contest_id').val() : 0 // Добавляем contest_id если доступен
                 },
                 success: function(response) {
                     if (response.success) {

@@ -3810,6 +3810,32 @@
     color: #e67e22;
 }
 
+/* Стили для истории изменений счета */
+.account-change-history h2 {
+    font-size: 20px;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+#account-history-wrapper .widefat {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+#account-history-wrapper .widefat th {
+    background-color: #f5f5f5;
+    padding: 10px;
+    text-align: left;
+    border-bottom: 2px solid #ddd;
+    font-weight: bold;
+}
+
+#account-history-wrapper .widefat td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #eee;
+}
+
 /* Адаптивность для архивного конкурса */
 @media (max-width: 768px) {
     .contest-archive-content {
@@ -3819,5 +3845,167 @@
     .contest-archive-sponsor {
         margin-top: 20px;
         justify-content: flex-start;
+    }
+}
+
+/* Стили для фильтров истории изменений счета */
+.history-filters {
+    margin: 20px 0;
+    padding: 10px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+.history-filter {
+    min-width: 150px;
+    padding: 6px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: white;
+}
+
+#account-history-wrapper.loading {
+    position: relative;
+    min-height: 100px;
+}
+
+#account-history-wrapper.loading:after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255,255,255,0.8) center no-repeat;
+    background-image: url('data:image/gif;base64,R0lGODlhEAAQAPIAAP///wAAAMLCwkJCQgAAAGJiYoKCgpKSkiH/C05FVFNDQVBFMi4wAwEAAAAh/hpDcmVhdGVkIHdpdGggYWpheGxvYWQuaW5mbwAh+QQJCgAAACwAAAAAEAAQAAADMwi63P4wyklrE2MIOggZnAdOmGYJRbExwroUmcG2LmDEwnHQLVsYOd2mBzkYDAdKa+dIAAAh+QQJCgAAACwAAAAAEAAQAAADNAi63P5OjCEgG4QMu7DmikRxQlFUYDEZIGBMRVsaqHwctXXf7WEYB4Ag1xjihkMZsiUkKhIAIfkECQoAAAAsAAAAABAAEAAAAzYIujIjK8pByJDMlFYvBoVjHA70GU7xSUJhmKtwHPAKzLO9HMaoKwJZ7Rf8AYPDDzKpZBqfvwQAIfkECQoAAAAsAAAAABAAEAAAAzMIumIlK8oyhpHsnFZfhYumCYUhDAQxRIdhHBGqRoKw0R8DYlJd8z0fMDgsGo/IpHI5TAAAIfkECQoAAAAsAAAAABAAEAAAAzIIunInK0rnZBTwGPNMgQwmdsNgXGJUlIWEuR5oWUIpz8pAEAMe6TwfwyYsGo/IpFKSAAAh+QQJCgAAACwAAAAAEAAQAAADMwi6IMKQORfjdOe82p4wGccc4CEuQradylesojEMBgsUc2G7sDX3lQGBMLAJibufbSlKAAAh+QQJCgAAACwAAAAAEAAQAAADMgi63P7wjRLsoRaDTi6O0xkQFJiiBZJI1PkOVUd6DPBzLBrQfg1AJhcBNgEKbIYGRU0SHgAh+QQJCgAAACwAAAAAEAAQAAADMwi6/A5M7p1TcfEgFLOmqNJlOT3IYjCgJHGZJR5nARJFhJWQ7QWGOKKFHMaLFMaLJSEgAC0h+QQJCgAAACwAAAAAEAAQAAADMgi6q4ZOvShYJJRbPdcAcZjOSCGpX1sKGh0a2AKdwPXOlAa8fVIWY6Z7OD6MEEGBDBMBACh+QQJCgAAACwAAAAAEAAQAAADMwi63P4wyklrE2MIOggZnAdOmGYJRbExwroUmcG2LmDEwnHQLVsYOd2mBzkYDAdKa+dIAAAh+QQJCgAAACwAAAAAEAAQAAADNAi63P5OjCEgG4QMu7DmikRxQlFUYDEZIGBMRVsaqHwctXXf7WEYB4Ag1xjihkMZsiUkKhIAOw==');
+}
+
+#sort_date {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 6px 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+#sort_date:hover {
+    background: #f8f9fa;
+    border-color: #ccc;
+}
+
+#sort_date .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+}
+
+/* Стили для процентного изменения в таблице истории */
+.change-percent {
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.change-percent.positive {
+    color: #28a745;
+    background-color: #e3f9ec;
+}
+
+.change-percent.negative {
+    color: #dc3545;
+    background-color: #fbe7e9;
+}
+
+@media (max-width: 768px) {
+    .history-filters {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .history-filter,
+    #sort_date {
+        min-width: auto;
+        margin-bottom: 5px;
+    }
+}
+
+/* Стили для пагинации истории изменений */
+.history-pagination {
+    margin: 20px 0;
+    text-align: center;
+}
+
+.pagination-info {
+    margin-bottom: 10px;
+    color: #666;
+    font-size: 14px;
+}
+
+.pagination-controls {
+    display: flex;
+    justify-content: center;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+
+.pagination-controls .button {
+    min-width: 40px;
+    padding: 6px 12px;
+    font-size: 13px;
+    line-height: 1.2;
+    border-radius: 3px;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    border: 1px solid #ccc;
+    background: white;
+    color: #333;
+    cursor: pointer;
+}
+
+.pagination-controls .history-page-btn:hover {
+    background-color: #f0f0f1;
+    border-color: #0073aa;
+    color: #0073aa;
+}
+
+.pagination-controls .button-primary {
+    background-color: #0073aa;
+    border-color: #0073aa;
+    color: white;
+}
+
+.pagination-controls .button-primary:disabled {
+    opacity: 0.7;
+    cursor: default;
+}
+
+/* Адаптивность для мобильных устройств */
+@media (max-width: 600px) {
+    .history-filters {
+        flex-direction: column;
+        gap: 5px;
+    }
+    
+    .history-filter {
+        min-width: 100%;
+    }
+    
+    .pagination-controls {
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    
+    .pagination-controls button {
+        min-width: 30px;
+        font-size: 12px;
+        padding: 4px 6px;
     }
 }
