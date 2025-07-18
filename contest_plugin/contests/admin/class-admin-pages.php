@@ -14,12 +14,12 @@ function format_time_ago($last_update) {
     $current_time = current_time('timestamp');
     $minutes_ago = round(($current_time - $last_update_time) / 60);
     
-    // Определяем класс на основе времени
-    if ($minutes_ago < 30) {
+    // Определяем класс на основе времени: до 3ч зеленый, 3-6ч оранжевый, 6ч+ красный
+    if ($minutes_ago < 180) { // До 3 часов
         $time_class = 'recent';
-    } else if ($minutes_ago < 120) {
+    } else if ($minutes_ago < 360) { // От 3 до 6 часов
         $time_class = 'moderate';
-    } else {
+    } else { // От 6 часов и больше
         $time_class = 'stale';
     }
     

@@ -22,6 +22,9 @@ class FTTrader_Brokers_Platforms {
         add_action('wp_ajax_nopriv_get_broker_servers', array(__CLASS__, 'ajax_get_broker_servers'));
         add_action('wp_ajax_get_contest_servers', array(__CLASS__, 'ajax_get_contest_servers'));
         add_action('wp_ajax_nopriv_get_contest_servers', array(__CLASS__, 'ajax_get_contest_servers'));
+        
+        add_action('wp_ajax_get_contest_platform', array(__CLASS__, 'ajax_get_contest_platform'));
+        add_action('wp_ajax_nopriv_get_contest_platform', array(__CLASS__, 'ajax_get_contest_platform'));
     }
     
     /**
@@ -600,6 +603,56 @@ class FTTrader_Brokers_Platforms {
         } else {
             wp_send_json_success($result_servers);
         }
+    }
+    
+    /**
+     * AJAX обработчик для получения платформы конкурса
+     */
+    public static function ajax_get_contest_platform() {
+        // Отладочная информация
+        error_log('[DEBUG] AJAX запрос get_contest_platform: ' . json_encode($_POST));
+        
+        // Проверка nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'ft_contest_nonce')) {
+            error_log('[ERROR] Ошибка nonce в get_contest_platform');
+            wp_send_json_error(array('message' => 'Ошибка безопасности. Пожалуйста, обновите страницу и попробуйте снова.'));
+        }
+        
+        // Проверка наличия ID конкурса
+        if (!isset($_POST['contest_id']) || empty($_POST['contest_id'])) {
+            error_log('[ERROR] ID конкурса не указан в get_contest_platform');
+            wp_send_json_error(array('message' => 'ID конкурса не указан.'));
+        }
+        
+        $contest_id = intval($_POST['contest_id']);
+        
+        // Получаем данные конкурса
+        $contest_data = get_post_meta($contest_id, '_fttradingapi_contest_data', true);
+        
+        if (empty($contest_data) || !isset($contest_data['platform_id'])) {
+            error_log('[WARNING] Для конкурса ID=' . $contest_id . ' не найден platform_id');
+            wp_send_json_error(array('message' => 'Для этого конкурса не настроена платформа.'));
+            return;
+        }
+        
+        $platform_id = intval($contest_data['platform_id']);
+        
+        // Получаем объект платформы
+        $platform = self::get_platform($platform_id);
+        
+        if (!$platform) {
+            error_log('[ERROR] Платформа ID=' . $platform_id . ' не найдена в базе данных');
+            wp_send_json_error(array('message' => 'Платформа не найдена.'));
+            return;
+        }
+        
+        error_log('[DEBUG] Найдена платформа для конкурса ' . $contest_id . ': ' . json_encode($platform));
+        
+        wp_send_json_success(array(
+            'platform_id' => $platform->id,
+            'platform_name' => $platform->name,
+            'platform_slug' => $platform->slug
+        ));
     }
 }
 

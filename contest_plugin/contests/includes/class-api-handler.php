@@ -39,6 +39,19 @@ function ft_api_log($data, $message = '', $type = 'info') {
 }
 
 /**
+ * Очищает лог HTTP запросов
+ */
+function clear_http_requests_log() {
+    $http_log_path = plugin_dir_path(__FILE__) . 'logs/http_requests.log';
+    if (file_exists($http_log_path)) {
+        file_put_contents($http_log_path, '');
+        error_log("HTTP requests log cleared: " . $http_log_path);
+        return true;
+    }
+    return false;
+}
+
+/**
  * Универсальная функция для работы со счетами
  * 
  * @param array $account_data Массив с данными счета (account_number, password, server и т.д.)
@@ -58,6 +71,24 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
 
     $is_new = $account_id === null;
     $account = null;
+    
+    // ЗАЩИТА ОТ ДУБЛИРОВАНИЯ: Проверяем блокировку для существующих счетов
+    if (!$is_new) {
+        $lock_key = 'updating_account_' . $account_id;
+        $lock_value = get_transient($lock_key);
+        
+        if ($lock_value) {
+            error_log("[API-HANDLER] БЛОКИРОВКА: Счет ID {$account_id} уже обновляется. Запрос отклонен. Queue: " . ($queue_batch_id ?? 'unknown'));
+            return [
+                'success' => false,
+                'message' => 'Счет уже обновляется, дублирующий запрос отклонен'
+            ];
+        }
+        
+        // Устанавливаем блокировку на 60 секунд
+        set_transient($lock_key, $queue_batch_id ?? 'manual', 60);
+        error_log("[API-HANDLER] БЛОКИРОВКА: Установлена блокировка для счета ID {$account_id}. Queue: " . ($queue_batch_id ?? 'manual'));
+    }
 
     // Если это существующий счет, получаем его данные
     if (!$is_new) {
@@ -361,15 +392,63 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
     $api_timeout = isset($auto_update_settings['fttrader_api_timeout']) ? 
         intval($auto_update_settings['fttrader_api_timeout']) : 30; // По умолчанию 30 секунд
     
-    // Добавляем подробную информацию о запросе в лог
-    ft_api_log([
-        'url_length' => strlen($url),
-        'url_base' => parse_url($url, PHP_URL_SCHEME) . '://' . parse_url($url, PHP_URL_HOST) . parse_url($url, PHP_URL_PATH),
-        'timeout' => $api_timeout
-    ], "Отправка запроса на API", "info");
+    // ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ HTTP ЗАПРОСА
+    $request_id = 'req_' . uniqid();
+    $request_start_time = microtime(true);
+    $queue_id = isset($api_params['queue_batch_id']) ? $api_params['queue_batch_id'] : 'unknown';
+    
+    // Путь к специальному логу для HTTP запросов
+    $http_log_path = plugin_dir_path(__FILE__) . 'logs/http_requests.log';
+    $log_dir = dirname($http_log_path);
+    if (!file_exists($log_dir)) {
+        wp_mkdir_p($log_dir);
+    }
+    
+    // Логируем начало запроса в отдельный файл
+    $log_entry = "============================================================\n";
+    $log_entry .= "🌐 HTTP REQUEST START\n";
+    $log_entry .= "   ID: " . $request_id . "\n";
+    $log_entry .= "   TIME: " . date('Y-m-d H:i:s', time()) . "\n";
+    $log_entry .= "   ACCOUNT: " . $params['login'] . "\n";
+    $log_entry .= "   SERVER: " . $params['server'] . "\n";
+    $log_entry .= "   URL: " . $url . "\n";
+    $log_entry .= "   QUEUE: " . $queue_id . "\n";
+    $log_entry .= "   ------------------------------------------------------------\n";
+    file_put_contents($http_log_path, $log_entry, FILE_APPEND | LOCK_EX);
     
     // Отправляем запрос с настраиваемым таймаутом
     $response = wp_remote_get($url, ['timeout' => $api_timeout, 'sslverify' => false]);
+    
+    // Вычисляем длительность запроса
+    $request_end_time = microtime(true);
+    $duration_ms = round(($request_end_time - $request_start_time) * 1000, 2);
+    
+    // Получаем информацию об ответе
+    $http_code = is_wp_error($response) ? 'ERROR' : wp_remote_retrieve_response_code($response);
+    $response_body = is_wp_error($response) ? '' : wp_remote_retrieve_body($response);
+    $response_size = strlen($response_body);
+    
+    // Определяем статус запроса
+    $request_status = 'ERROR';
+    if (!is_wp_error($response) && $http_code >= 200 && $http_code < 300) {
+        $request_status = 'SUCCESS';
+    } elseif (!is_wp_error($response)) {
+        $request_status = 'HTTP_ERROR';
+    }
+    
+    // Логируем конец запроса в отдельный файл
+    $end_time = time();
+    $log_entry = "✅ HTTP REQUEST END\n";
+    $log_entry .= "   ID: " . $request_id . "\n";
+    $log_entry .= "   END_TIME: " . date('Y-m-d H:i:s', $end_time) . "\n";
+    $log_entry .= "   DURATION: " . $duration_ms . "ms\n";
+    $log_entry .= "   STATUS: " . $request_status . "\n";
+    $log_entry .= "   HTTP_CODE: " . $http_code . "\n";
+    $log_entry .= "   RESPONSE_SIZE: " . $response_size . " bytes\n";
+    $log_entry .= "============================================================\n";
+    
+    // Записываем в файл
+    file_put_contents($http_log_path, $log_entry, FILE_APPEND | LOCK_EX);
 
     if (is_wp_error($response)) {
         $error_message = $response->get_error_message();
@@ -381,39 +460,25 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
             ft_api_log($error_data, "API Error Additional Data", "error");
         }
         
-        // Формируем более дружественное сообщение об ошибке
-        $friendly_message = 'Ошибка подключения к серверу: ';
-        
-        // Проверяем типичные ошибки
-        if (strpos($error_message, 'cURL error 28') !== false) {
-            $friendly_message .= 'превышено время ожидания запроса. Сервер не отвечает, попробуйте позже.';
-        } elseif (strpos($error_message, 'cURL error 6') !== false || 
-                 strpos($error_message, 'Could not resolve host') !== false) {
-            $friendly_message .= 'не удалось найти сервер. Проверьте ваше интернет-соединение.';
-        } elseif (strpos($error_message, 'cURL error 7') !== false) {
-            $friendly_message .= 'не удалось соединиться с сервером. Сервер может быть недоступен.';
-        } else {
-            $friendly_message .= $error_message;
-        }
-        
         return [
             'success' => false,
-            'message' => $friendly_message,
-            'debug_info' => 'WP_Error в API запросе: ' . $error_message
+            'message' => "Ошибка соединения с API сервером: {$error_message}. Пожалуйста, попробуйте позже.",
+            'debug_info' => $error_data
         ];
     }
 
-    $body = wp_remote_retrieve_body($response);
+    // Используем уже полученную переменную $response_body
+    $body = $response_body;
     
-    // Получаем код HTTP ответа
-    $status_code = wp_remote_retrieve_response_code($response);
+    // Получаем код HTTP ответа  
+    $status_code = $http_code;
 
     // Обрабатываем код 500 специальным образом
     if ($status_code == 500) {
         ft_api_log([
             'status_code' => $status_code,
             'headers' => wp_remote_retrieve_headers($response),
-            'body_preview' => substr(wp_remote_retrieve_body($response), 0, 500)
+            'body_preview' => substr($body, 0, 500)
         ], "API вернул HTTP 500 - внутренняя ошибка сервера", "error");
         
         return [
@@ -422,6 +487,22 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
             'debug_info' => 'HTTP 500 - внутренняя ошибка сервера'
         ];
     }
+
+    // Обрабатываем коды 4xx
+    if ($status_code >= 400 && $status_code < 500) {
+        ft_api_log([
+            'status_code' => $status_code,
+            'body' => $body
+        ], "API Client Error {$status_code}", "error");
+        
+        return [
+            'success' => false,
+            'message' => "Ошибка запроса к API (код {$status_code}). Проверьте данные для входа.",
+            'debug_info' => "HTTP {$status_code}: {$body}"
+        ];
+    }
+
+    ft_api_log($body, "API Response", "info");
 
     // 1. Логирование исходящих параметров
     $debug_outgoing_params = [
@@ -454,6 +535,8 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
 
     // Проверка на валидный JSON
     $data = json_decode($body, true);
+    
+
     if (json_last_error() !== JSON_ERROR_NONE) {
         $json_error = json_last_error_msg();
         ft_api_log([$json_error, substr($body, 0, 1000)], "API JSON Error", "error");
@@ -485,12 +568,29 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
         ];
         
         if (!$is_new) {
-            // Обновляем только статус подключения и ошибку, финансовые показатели не трогаем
-            $wpdb->update(
-                $table_name,
-                $db_data,
-                ['id' => $account_id]
-            );
+            // ЗАЩИТА ДИСКВАЛИФИКАЦИИ: Проверяем текущий статус перед обновлением
+            $current_status = $wpdb->get_var($wpdb->prepare(
+                "SELECT connection_status FROM $table_name WHERE id = %d",
+                $account_id
+            ));
+            
+            // Если счет дисквалифицирован, НЕ изменяем статус
+            if ($current_status === 'disqualified') {
+                error_log("[API-HANDLER] ЗАЩИТА: Пропускаем изменение статуса для дисквалифицированного счета ID: {$account_id}");
+                // Обновляем только время последнего обновления
+                $wpdb->update(
+                    $table_name,
+                    ['last_update' => current_time('mysql')],
+                    ['id' => $account_id]
+                );
+            } else {
+                // Обновляем только статус подключения и ошибку, финансовые показатели не трогаем
+                $wpdb->update(
+                    $table_name,
+                    $db_data,
+                    ['id' => $account_id]
+                );
+            }
         }
         
         // Добавляем подробное логирование ошибки
@@ -516,12 +616,29 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
         ];
         
         if (!$is_new) {
-            // Обновляем только статус подключения и ошибку, не трогая финансовые показатели
-            $wpdb->update(
-                $table_name,
-                $db_data,
-                ['id' => $account_id]
-            );
+            // ЗАЩИТА ДИСКВАЛИФИКАЦИИ: Проверяем текущий статус перед обновлением
+            $current_status = $wpdb->get_var($wpdb->prepare(
+                "SELECT connection_status FROM $table_name WHERE id = %d",
+                $account_id
+            ));
+            
+            // Если счет дисквалифицирован, НЕ изменяем статус
+            if ($current_status === 'disqualified') {
+                error_log("[API-HANDLER] ЗАЩИТА: Пропускаем изменение статуса для дисквалифицированного счета ID: {$account_id} (connection_status=disconnected)");
+                // Обновляем только время последнего обновления
+                $wpdb->update(
+                    $table_name,
+                    ['last_update' => current_time('mysql')],
+                    ['id' => $account_id]
+                );
+            } else {
+                // Обновляем только статус подключения и ошибку, не трогая финансовые показатели
+                $wpdb->update(
+                    $table_name,
+                    $db_data,
+                    ['id' => $account_id]
+                );
+            }
         }
         
         return [
@@ -548,12 +665,29 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
         ];
         
         if (!$is_new) {
-            // Обновляем только статус подключения и ошибку, финансовые показатели не трогаем
-            $wpdb->update(
-                $table_name,
-                $db_data,
-                ['id' => $account_id]
-            );
+            // ЗАЩИТА ДИСКВАЛИФИКАЦИИ: Проверяем текущий статус перед обновлением
+            $current_status = $wpdb->get_var($wpdb->prepare(
+                "SELECT connection_status FROM $table_name WHERE id = %d",
+                $account_id
+            ));
+            
+            // Если счет дисквалифицирован, НЕ изменяем статус
+            if ($current_status === 'disqualified') {
+                error_log("[API-HANDLER] ЗАЩИТА: Пропускаем изменение статуса для дисквалифицированного счета ID: {$account_id} (missing fields)");
+                // Обновляем только время последнего обновления
+                $wpdb->update(
+                    $table_name,
+                    ['last_update' => current_time('mysql')],
+                    ['id' => $account_id]
+                );
+            } else {
+                // Обновляем только статус подключения и ошибку, финансовые показатели не трогаем
+                $wpdb->update(
+                    $table_name,
+                    $db_data,
+                    ['id' => $account_id]
+                );
+            }
         }
         
         return [
@@ -596,12 +730,7 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
         // Добавляем новый пароль если он был изменен
         if (isset($account_data['password']) && !empty($account_data['password'])) {
             $new_data_for_history['pass'] = $account_data['password'];
-        }
-
-        // Маппим i_level в leverage для истории изменений
-        if (isset($new_data_for_history['i_level'])) {
-            $new_data_for_history['leverage'] = $new_data_for_history['i_level'];
-        }
+            }
 
         // Отслеживаем изменения для существующих счетов
         $history = new Account_History();
@@ -640,7 +769,7 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
         'equity' => ['acc', 'i_equi'],
         'margin' => ['acc', 'i_marg'],
         'profit' => ['acc', 'i_prof'],
-        'leverage' => ['acc', 'i_level'],
+        'leverage' => ['acc', 'leverage'],
         'orders_total' => ['acc', 'i_ordtotal'],
         'orders_history_total' => ['statistics', 'ACCOUNT_ORDERS_HISTORY_TOTAL'],
         'orders_history_profit' => ['statistics', 'ACCOUNT_ORDERS_HISTORY_PROFIT'],
@@ -660,6 +789,8 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
     foreach ($fields_map as $db_key => $path) {
         $section = $path[0];
         $key = $path[1];
+        
+
         
         if (isset($data[$section][$key]) && $data[$section][$key] !== '' && $data[$section][$key] !== null) {
             // Для финансовых полей проверяем, чтобы значение не было нулем
@@ -713,8 +844,12 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
                         }
                         
                         // Блок 2: Нет старого значения или оно тоже 0
-                        $db_data[$db_key] = -2; // Блок 2: Отсутствуют старые значения
-                        error_log("[API-HANDLER] ОТЛАДКА v1.2.1: Блок 2 (-2): отсутствуют старые значения для поля $db_key (account_id: {$account_id})");
+                        if ($db_key === 'leverage') {
+                            $db_data[$db_key] = null; // Для leverage используем NULL если данных нет
+                        } else {
+                            $db_data[$db_key] = 0; // Для остальных полей используем 0
+                        }
+                        error_log("[API-HANDLER] ОТЛАДКА v1.2.1: Блок 2: отсутствуют старые значения для поля $db_key, установлено значение: " . ($db_key === 'leverage' ? 'NULL' : '0') . " (account_id: {$account_id})");
                     }
                 } else {
                     // Если значение не 0, используем его
@@ -738,17 +873,17 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
                 }
                 // Если старое значение пустое, используем значение по умолчанию
                 $default_values = [
-                    'balance' => -2, // Блок 2: Поле отсутствует в API
-                    'equity' => -2, // Блок 2: Поле отсутствует в API
-                    'margin' => -2, // Блок 2: Поле отсутствует в API
-                    'profit' => -2, // Блок 2: Поле отсутствует в API
-                    'leverage' => -2, // Блок 2: Поле отсутствует в API
+                    'balance' => 0.0, // Нулевой баланс по умолчанию
+                    'equity' => 0.0, // Нулевой эквити по умолчанию
+                    'margin' => 0.0, // Нулевая маржа по умолчанию
+                    'profit' => 0.0, // Нулевая прибыль по умолчанию
+                    'leverage' => null, // Пустое значение если плечо не определено
                     'orders_total' => 0, // Количество ордеров не может быть отрицательным
-                    'orders_history_total' => -2, // Блок 2: Поле отсутствует в API
-                    'orders_history_profit' => -2 // Блок 2: Поле отсутствует в API
+                    'orders_history_total' => 0, // Нулевое количество исторических ордеров
+                    'orders_history_profit' => 0.0 // Нулевая историческая прибыль
                 ];
                 $db_data[$db_key] = $default_values[$db_key];
-                error_log("[API-HANDLER] ОТЛАДКА v1.2.1: Блок 2 (корректное значение): поле $db_key отсутствует в API (account_id: {$account_id})");
+                error_log("[API-HANDLER] ОТЛАДКА v1.2.1: Блок 2 (корректное значение): поле $db_key отсутствует в API, используем значение по умолчанию {$default_values[$db_key]} (account_id: {$account_id})");
             } else {
                 // Для остальных полей логируем отсутствие данных
                 error_log("[API-HANDLER] Не получено значение для поля $db_key (account_id: {$account_id}) — поле не будет обновлено!");
@@ -878,37 +1013,45 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
     // Если это обновление существующего счета
     if (!$is_new) {
         try {
-            // Получаем текущие данные счета перед обновлением
+            // УЛУЧШЕННАЯ ЗАЩИТА ДИСКВАЛИФИКАЦИИ: Проверяем статус ПЕРЕД обновлением
             $current_account = $wpdb->get_row($wpdb->prepare(
                 "SELECT connection_status, error_description FROM $table_name WHERE id = %d",
                 $account_id
             ), ARRAY_A);
             
-            // Запоминаем был ли счет дисквалифицирован
-            $was_disqualified = isset($current_account['connection_status']) && $current_account['connection_status'] === 'disqualified';
-            $disqualification_reason = $was_disqualified ? $current_account['error_description'] : '';
+            $is_disqualified = isset($current_account['connection_status']) && $current_account['connection_status'] === 'disqualified';
             
-            // Выполняем обновление записи в БД
-            $result = $wpdb->update($table_name, $db_data, ['id' => $account_id]);
+            if ($is_disqualified) {
+                // Если счет дисквалифицирован, НЕ изменяем статус подключения и описание ошибки
+                error_log("[API-HANDLER] ЗАЩИТА: Сохраняем дисквалификацию для счета ID: {$account_id}");
+                
+                // Убираем поля статуса из обновления
+                unset($db_data['connection_status']);
+                unset($db_data['error_description']);
+                
+                // Если нет других полей для обновления, то обновляем только время
+                if (count($db_data) <= 1) { // только last_update
+                    $result = $wpdb->update(
+                        $table_name, 
+                        ['last_update' => current_time('mysql')], 
+                        ['id' => $account_id]
+                    );
+                } else {
+                    // Обновляем финансовые данные без изменения статуса
+                    
+                    $result = $wpdb->update($table_name, $db_data, ['id' => $account_id]);
+                }
+            } else {
+                // Счет не дисквалифицирован - обновляем все данные включая статус
+                
+                $result = $wpdb->update($table_name, $db_data, ['id' => $account_id]);
+            }
 
             if ($result === false) {
                 return [
                     'success' => false,
                     'message' => 'Ошибка базы данных: ' . $wpdb->last_error
                 ];
-            }
-
-            // Если счет был дисквалифицирован ранее, восстанавливаем статус дисквалификации
-            if ($was_disqualified) {
-                $wpdb->update(
-                    $table_name,
-                    [
-                        'connection_status' => 'disqualified',
-                        'error_description' => $disqualification_reason
-                    ],
-                    ['id' => $account_id]
-                );
-                error_log("[API-HANDLER] Восстановлен статус дисквалификации для счета ID: {$account_id}. Причина: {$disqualification_reason}");
             }
 
             // Обработка ордеров если необходимо
@@ -939,6 +1082,13 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
                 $orders->update_order_history($account_id, $data['order_history']);
             }
 
+            // Снимаем блокировку перед успешным возвратом
+            if (!$is_new && isset($account_id)) {
+                $lock_key = 'updating_account_' . $account_id;
+                delete_transient($lock_key);
+                error_log("[API-HANDLER] БЛОКИРОВКА: Снята блокировка для счета ID {$account_id} (успешное обновление)");
+            }
+            
             // Явно возвращаем успешный результат с булевым значением success
             return [
                 'success' => true, // Используем булево значение true вместо 1
@@ -946,6 +1096,14 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
             ];
         } catch (Exception $e) {
             error_log('Exception during account update: ' . $e->getMessage());
+            
+            // Снимаем блокировку при исключении
+            if (!$is_new && isset($account_id)) {
+                $lock_key = 'updating_account_' . $account_id;
+                delete_transient($lock_key);
+                error_log("[API-HANDLER] БЛОКИРОВКА: Снята блокировка для счета ID {$account_id} (исключение)");
+            }
+            
             return [
                 'success' => false, // Используем булево значение false
                 'message' => 'Ошибка при обновлении счета: ' . $e->getMessage()
@@ -956,6 +1114,14 @@ function process_trading_account($account_data, $account_id = null, $contest_id 
     // Если функция дошла до этого места без return, значит что-то пошло не так
     // Это не должно происходить, но добавим страховочный код
     error_log('[API-HANDLER] Критическая ошибка: функция process_trading_account завершилась без return');
+    
+    // Снимаем блокировку перед выходом
+    if (!$is_new && isset($account_id)) {
+        $lock_key = 'updating_account_' . $account_id;
+        delete_transient($lock_key);
+        error_log("[API-HANDLER] БЛОКИРОВКА: Снята блокировка для счета ID {$account_id} (критическая ошибка)");
+    }
+    
     return [
         'success' => false,
         'message' => 'Внутренняя ошибка сервера: функция завершилась без результата',
@@ -1156,7 +1322,9 @@ function fttradingapi_create_update_queue()
     require_once plugin_dir_path(__FILE__) . 'class-account-updater.php';
     $result = Account_Updater::init_queue($account_ids, $is_auto_update, $contest_id);
     
+    // ОТКЛЮЧЕНО: Немедленная обработка первых счетов вызывает дублирование с демоном
     // Если очередь создана успешно, передаем queue_id в запросы на обновление счетов
+    /*
     if ($result['success'] && isset($result['queue_id'])) {
         $queue_id = $result['queue_id'];
         
@@ -1183,6 +1351,7 @@ function fttradingapi_create_update_queue()
             }
         }
     }
+    */
     
     // Логирование результата
     error_log('init_queue result: success=' . ($result['success'] ? 'true' : 'false') . 
@@ -1443,8 +1612,8 @@ function fttradingapi_restart_queue_diagnostics()
     ];
     update_option($contest_key, $active_queues);
     
-    // Планируем выполнение через 10 секунд
-    $scheduled = wp_schedule_single_event(time() + 10, 'process_accounts_update_batch', [$contest_id, $queue_id]);
+    // Планируем выполнение через 1 секунду
+    $scheduled = wp_schedule_single_event(time() + 1, 'process_accounts_update_batch', [$contest_id, $queue_id]);
     
     error_log("Очередь {$queue_id} перезапущена:");
     error_log("- Запланирована задача: " . ($scheduled ? 'YES' : 'NO'));

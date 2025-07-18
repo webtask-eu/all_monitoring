@@ -9,6 +9,7 @@ class Account_Updater
     const STATUS_OPTION_PREFIX = 'contest_accounts_update_status_';
     const AUTO_UPDATE_LAST_RUN = 'contest_create_queues_last_run';
     const BATCH_SIZE = 2; // Размер пакета по умолчанию для одного запуска - уменьшено до 2, в соответствии с ограничениями API сервера V2023.11.21
+    const BATCH_INTERVAL = 60; // Интервал между пакетами в секундах (1 минута) для батчевого режима
 
     /**
      * Получает таймаут очередей из настроек (в секундах)
@@ -52,6 +53,11 @@ class Account_Updater
             ));
         }
 
+        // Получаем настройки обработки
+        $auto_update_settings = get_option('fttrader_auto_update_settings', []);
+        $processing_mode = isset($auto_update_settings['fttrader_processing_mode']) ? 
+            $auto_update_settings['fttrader_processing_mode'] : 'batch';
+
         // Создаем уникальный ID для этой очереди
         $letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
         $random_letters = '';
@@ -60,11 +66,12 @@ class Account_Updater
         }
         $queue_id = 'q' . $random_letters;
         
-        // ДОБАВЛЕНО: Логируем созданный ID очереди
-        error_log("Created queue_id: " . $queue_id);
+        // ДОБАВЛЕНО: Логируем созданный ID очереди и режим обработки
+        error_log("Created queue_id: " . $queue_id . " (mode: " . $processing_mode . ")");
         
         // Выводим информацию в консоль через wp_add_inline_script
-        $script = "console.log('%c🆔 Создан Queue ID: " . $queue_id . "', 'background:#3498db;color:white;padding:4px 8px;border-radius:3px;font-weight:bold;');";
+        $mode_label = ($processing_mode === 'sequential') ? 'Последовательный' : 'Батчевый';
+        $script = "console.log('%c🆔 Создан Queue ID: " . $queue_id . " (" . $mode_label . ")', 'background:#3498db;color:white;padding:4px 8px;border-radius:3px;font-weight:bold;');";
         wp_add_inline_script('jquery', $script);
         
         // Используем contest_id + queue_id для формирования уникальных ключей опций
@@ -100,6 +107,7 @@ class Account_Updater
             'is_running' => true,
             'current_batch' => 0,
             'is_auto_update' => $is_auto_update,
+            'processing_mode' => $processing_mode, // Сохраняем режим обработки
             'initiator' => $initiator_info, // Информация об инициаторе
             'accounts' => [], // Для хранения статуса каждого счета
             'status_option' => $status_option, // Сохраняем имя опции, чтобы легко находить статус
@@ -123,14 +131,17 @@ class Account_Updater
         // Добавляем запись о новой очереди в список активных очередей для этого конкурса
         self::register_active_queue($contest_id, $queue_id, $status_option);
 
-        // Запускаем обработку через WP Cron с передачей queue_id и contest_id
-        $scheduled = wp_schedule_single_event(time() + 10, 'process_accounts_update_batch', [$contest_id, $queue_id]);
+        // Планируем обработку с минимальной задержкой
+        $initial_delay = 2; // Минимальная задержка для всех режимов
+        $scheduled = wp_schedule_single_event(time() + $initial_delay, 'process_accounts_update_batch', [$contest_id, $queue_id]);
         
         // ДОБАВЛЕНО: Детальная диагностика планирования задач
         error_log("=== ДИАГНОСТИКА ПЛАНИРОВАНИЯ ОЧЕРЕДИ {$queue_id} ===");
+        error_log("Режим обработки: " . $processing_mode);
+        error_log("Начальная задержка: " . $initial_delay . " сек");
         error_log("Результат wp_schedule_single_event: " . ($scheduled ? 'SUCCESS' : 'FAILED'));
         error_log("Contest ID: " . ($contest_id ? $contest_id : 'global'));
-        error_log("Время планирования: " . date('Y-m-d H:i:s', time() + 10));
+        error_log("Время планирования: " . date('Y-m-d H:i:s', time() + $initial_delay));
         error_log("Количество счетов в очереди: " . count($account_ids));
         
         // Проверяем, что задача действительно запланирована
@@ -155,15 +166,13 @@ class Account_Updater
         
         // Принудительный запуск задач WP Cron сразу после планирования
         if ($scheduled) {
-            // ДОБАВЛЕНО: Попытка немедленного запуска для критически важных очередей
-            if (count($account_ids) > 50) { // Для больших очередей
-                error_log("Большая очередь ({$queue_id}): запуск принудительного spawn_cron");
-                spawn_cron();
-                
-                // Дополнительная попытка через 10 секунд для больших очередей
-                wp_schedule_single_event(time() + 10, 'process_accounts_update_batch', [$contest_id, $queue_id]);
-                error_log("Запланирована дополнительная попытка обработки через 10 секунд для очереди {$queue_id}");
-            }
+            // ИСПРАВЛЕНО: Принудительный запуск для ВСЕХ очередей (убрано ограничение на 50 счетов)
+            error_log("Очередь ({$queue_id}): запуск принудительного spawn_cron");
+            spawn_cron();
+            
+            // Дополнительная попытка через 1 секунду для всех очередей
+            wp_schedule_single_event(time() + 1, 'process_accounts_update_batch', [$contest_id, $queue_id]);
+            error_log("Запланирована дополнительная попытка обработки через 1 секунду для очереди {$queue_id}");
         } else {
             // Если планирование не удалось, обрабатываем первую порцию напрямую
             error_log("КРИТИЧЕСКАЯ ОШИБКА: Планирование не удалось для очереди {$queue_id}. Запуск обработки через 10 секунд.");
@@ -297,22 +306,17 @@ class Account_Updater
             sleep($parallel_delay);
         }
 
-        // Всегда получаем размер пакета из настроек плагина, независимо от типа обновления
+        // Получаем настройки размера пакета и интервала
         $auto_update_settings = get_option('fttrader_auto_update_settings', []);
-        $batch_size = isset($auto_update_settings['fttrader_batch_size']) ?
+        $processing_mode = isset($status['processing_mode']) ? $status['processing_mode'] : 'batch';
+        
+        // Размер пакета остается одинаковым для обоих режимов
+        $batch_size = isset($auto_update_settings['fttrader_batch_size']) ? 
             intval($auto_update_settings['fttrader_batch_size']) : self::BATCH_SIZE;
+        
+        error_log("НЕМЕДЛЕННАЯ ОБРАБОТКА: Обрабатываем пакет из {$batch_size} счетов (минимальные задержки между пакетами)");
 
-        // ДОБАВЛЕНО: Адаптация размера пакета при параллельной работе
-        $active_queues_count = self::count_all_active_queues();
-        if ($active_queues_count > 1) {
-            // Уменьшаем размер пакета пропорционально количеству активных очередей
-            $batch_size = max(1, floor($batch_size / $active_queues_count));
-            error_log("Активных очередей: {$active_queues_count}. Размер пакета уменьшен до: {$batch_size}");
-        }
-        
-        error_log("Размер пакета для обработки: {$batch_size}");
-        error_log("Текущий номер пакета: " . ($status['current_batch'] ?? 0));
-        
+        // Вычисляем начало и конец текущей порции
         $batch_start = $status['current_batch'] * $batch_size;
         $current_batch = array_slice($queue, $batch_start, $batch_size);
         
@@ -361,8 +365,8 @@ class Account_Updater
             
             if ($remaining_accounts > 0) {
                 error_log("ПЕРЕХОД К СЛЕДУЮЩЕМУ ПАКЕТУ: Осталось {$remaining_accounts} необработанных счетов");
-                // Планируем следующий пакет через 30 секунд
-                wp_schedule_single_event(time() + 30, 'process_accounts_update_batch', [$contest_id, $queue_id]);
+                // Планируем следующий пакет через 1 секунду
+                wp_schedule_single_event(time() + 1, 'process_accounts_update_batch', [$contest_id, $queue_id]);
                 return false;
             } else {
                 error_log("ЗАВЕРШЕНИЕ: Все счета обработаны");
@@ -398,7 +402,7 @@ class Account_Updater
                     
                     // Планируем следующую порцию, если есть еще счета
                     if ($status['completed'] < $status['total']) {
-                        wp_schedule_single_event(time() + 5, 'process_accounts_update_batch', [$contest_id, $queue_id]);
+                        wp_schedule_single_event(time() + 1, 'process_accounts_update_batch', [$contest_id, $queue_id]);
                         error_log("Запланирована следующая порция несмотря на ошибку функции");
                     } else {
                         self::complete_queue($contest_id, $queue_id, $status_option, $queue_option);
@@ -432,73 +436,148 @@ class Account_Updater
         }
 
         // Обновляем счета в порции
-        $batch_size_actual = count($current_batch);
-        error_log("НАЧАЛО: Обработка {$batch_size_actual} счетов в пакете #{$status['current_batch']}");
+        $batch_size_actual = min($batch_size, count($current_batch));
+        $current_batch_success_count = 0; // Счетчик успешных обновлений в текущем пакете
+        $account_index = 0; // Счетчик обработанных счетов в пакете
         
-        $account_index = 0;
-        foreach ($current_batch as $account_id) {
-            $account_index++;
-            error_log("Обработка счета ID: {$account_id} ({$account_index}/{$batch_size_actual} в пакете)");
+        error_log("НАЧАЛО: Обработка пакета #{$status['current_batch']} ({$batch_size_actual} счетов)");
+        
+        // ВЫБОР РЕЖИМА ОБРАБОТКИ: параллельный или последовательный
+        if ($processing_mode === 'batch') {
+            // ПАРАЛЛЕЛЬНАЯ ОБРАБОТКА для batch режима
+            error_log("РЕЖИМ: Параллельная обработка пакета из {$batch_size_actual} счетов");
             
-            // Помечаем счет как обрабатываемый
-            $status['accounts'][$account_id]['status'] = 'processing';
-            $status['accounts'][$account_id]['start_time'] = time();
-            update_option($status_option, $status);
-
-            try {
-                // Вызываем функцию обновления счета с передачей queue_batch_id
-                if (!empty($queue_id)) {
-                    $queue_batch_id = $queue_id;
-                } else {
-                    // Генерируем короткий queue_batch_id для пакетного обновления
-                    $letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
-                    $random_letters = '';
-                    for ($i = 0; $i < 4; $i++) {
-                        $random_letters .= $letters[rand(0, strlen($letters) - 1)];
-                    }
-                    $queue_batch_id = 'b' . $random_letters; // b означает batch update
+            // Генерируем queue_batch_id для пакета
+            if (!empty($queue_id)) {
+                $queue_batch_id = $queue_id;
+            } else {
+                $letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+                $random_letters = '';
+                for ($i = 0; $i < 4; $i++) {
+                    $random_letters .= $letters[rand(0, strlen($letters) - 1)];
                 }
-                
-                error_log("Вызов process_trading_account для счета {$account_id} с queue_batch_id: {$queue_batch_id}");
-                $result = process_trading_account([], $account_id, null, $queue_batch_id);
-                error_log("Результат обработки счета {$account_id}: " . ($result['success'] ? 'SUCCESS' : 'FAILED') . " - " . $result['message']);
-
-                // Получаем актуальный статус подключения из базы
-                $account_data = $wpdb->get_row($wpdb->prepare(
-                    "SELECT connection_status, error_description, balance, equity, margin, leverage FROM {$wpdb->prefix}contest_members WHERE id = %d",
-                    $account_id
-                ), ARRAY_A);
-
-                // Обновляем статус счета
-                $status['accounts'][$account_id]['status'] = $result['success'] ? 'success' : 'failed';
-                $status['accounts'][$account_id]['connection_status'] = $account_data['connection_status'] ?? 'disconnected';
-                $status['accounts'][$account_id]['error_description'] = $account_data['error_description'] ?? '';
-                $status['accounts'][$account_id]['message'] = $result['message'];
-                $status['accounts'][$account_id]['end_time'] = time();
-
-                // Обновляем общую статистику
-                $status['completed']++;
-                if ($result['success']) {
-                    $status['success']++;
-                } else {
-                    $status['failed']++;
-                }
-            } catch (Exception $e) {
-                error_log("ИСКЛЮЧЕНИЕ при обработке счета {$account_id}: " . $e->getMessage());
-                
-                // Обрабатываем исключение
-                $status['accounts'][$account_id]['status'] = 'failed';
-                $status['accounts'][$account_id]['message'] = 'Исключение: ' . $e->getMessage();
-                $status['accounts'][$account_id]['end_time'] = time();
-                $status['completed']++;
-                $status['failed']++;
+                $queue_batch_id = 'b' . $random_letters;
             }
-
-            $status['last_update'] = time();
+            
+            // Помечаем все счета как обрабатываемые
+            foreach ($current_batch as $account_id) {
+                $status['accounts'][$account_id]['status'] = 'processing';
+                $status['accounts'][$account_id]['start_time'] = time();
+            }
             update_option($status_option, $status);
             
-            error_log("Завершена обработка счета {$account_id} ({$account_index}/{$batch_size_actual} в пакете). Общий прогресс: {$status['completed']}/{$status['total']}");
+            // Выполняем параллельную обработку
+            $parallel_results = self::process_accounts_parallel($current_batch, $queue_batch_id);
+            
+            // Обрабатываем результаты параллельной обработки
+            foreach ($current_batch as $account_id) {
+                $account_index++;
+                
+                if (isset($parallel_results[$account_id])) {
+                    $result = $parallel_results[$account_id];
+                    
+                    error_log("ПАРАЛЛЕЛЬНЫЙ РЕЗУЛЬТАТ для счета {$account_id}: " . ($result['success'] ? 'SUCCESS' : 'FAILED') . " - " . $result['message']);
+                    
+                    // Обновляем статус счета
+                    if ($result['success']) {
+                        $status['accounts'][$account_id]['status'] = 'success';
+                        $status['accounts'][$account_id]['message'] = $result['message'];
+                        $status['success']++;
+                        $current_batch_success_count++;
+                    } else {
+                        $status['accounts'][$account_id]['status'] = 'failed';
+                        $status['accounts'][$account_id]['message'] = $result['message'];
+                        $status['failed']++;
+                    }
+                    
+                    $status['accounts'][$account_id]['end_time'] = time();
+                    $status['completed']++;
+                } else {
+                    // Счет не был обработан
+                    error_log("ОШИБКА: Счет {$account_id} не найден в результатах параллельной обработки");
+                    $status['accounts'][$account_id]['status'] = 'failed';
+                    $status['accounts'][$account_id]['message'] = 'Счет не был обработан';
+                    $status['accounts'][$account_id]['end_time'] = time();
+                    $status['failed']++;
+                    $status['completed']++;
+                }
+            }
+            
+        } else {
+            // ПОСЛЕДОВАТЕЛЬНАЯ ОБРАБОТКА для sequential режима
+            error_log("РЕЖИМ: Последовательная обработка пакета из {$batch_size_actual} счетов");
+            
+            foreach ($current_batch as $account_id) {
+                $account_index++;
+                error_log("Обработка счета ID: {$account_id} ({$account_index}/{$batch_size_actual} в пакете)");
+                
+                // Помечаем счет как обрабатываемый
+                $status['accounts'][$account_id]['status'] = 'processing';
+                $status['accounts'][$account_id]['start_time'] = time();
+                update_option($status_option, $status);
+
+                try {
+                    // Вызываем функцию обновления счета с передачей queue_batch_id
+                    if (!empty($queue_id)) {
+                        $queue_batch_id = $queue_id;
+                    } else {
+                        // Генерируем короткий queue_batch_id для пакетного обновления
+                        $letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+                        $random_letters = '';
+                        for ($i = 0; $i < 4; $i++) {
+                            $random_letters .= $letters[rand(0, strlen($letters) - 1)];
+                        }
+                        $queue_batch_id = 'b' . $random_letters; // b означает batch update
+                    }
+                    
+                    error_log("Вызов process_trading_account для счета {$account_id} с queue_batch_id: {$queue_batch_id}");
+                    $result = process_trading_account([], $account_id, null, $queue_batch_id);
+                    error_log("=== РЕЗУЛЬТАТ API ДЛЯ СЧЕТА {$account_id} ===");
+                    error_log("SUCCESS: " . ($result['success'] ? 'TRUE' : 'FALSE'));
+                    error_log("MESSAGE: " . ($result['message'] ?? 'НЕТ СООБЩЕНИЯ'));
+                    error_log("ДАННЫЕ: " . print_r($result, true));
+                    error_log("=== КОНЕЦ РЕЗУЛЬТАТА ===");
+                    error_log("Результат обработки счета {$account_id}: " . ($result['success'] ? 'SUCCESS' : 'FAILED') . " - " . $result['message']);
+
+                    // Получаем актуальный статус подключения из базы
+                    $account_data = $wpdb->get_row($wpdb->prepare(
+                        "SELECT connection_status, error_description, balance, equity, margin, leverage FROM {$wpdb->prefix}contest_members WHERE id = %d",
+                        $account_id
+                    ), ARRAY_A);
+
+                    // Обновляем статус счета в очереди
+                    if ($result['success']) {
+                        $status['accounts'][$account_id]['status'] = 'success';
+                        $status['accounts'][$account_id]['message'] = $result['message'];
+                        $status['success']++;
+                        $current_batch_success_count++;
+                    } else {
+                        $status['accounts'][$account_id]['status'] = 'failed';
+                        $status['accounts'][$account_id]['message'] = $result['message'];
+                        $status['failed']++;
+                    }
+
+                    $status['accounts'][$account_id]['end_time'] = time();
+                    $status['completed']++;
+                    $status['last_update'] = time();
+                    update_option($status_option, $status);
+
+                } catch (Exception $e) {
+                    error_log("ИСКЛЮЧЕНИЕ при обработке счета {$account_id}: " . $e->getMessage());
+                    $status['accounts'][$account_id]['status'] = 'failed';
+                    $status['accounts'][$account_id]['message'] = 'Ошибка: ' . $e->getMessage();
+                    $status['accounts'][$account_id]['end_time'] = time();
+                    $status['failed']++;
+                    $status['completed']++;
+                    $status['last_update'] = time();
+                    update_option($status_option, $status);
+                }
+            }
         }
+
+        // Обновляем общий статус очереди
+        $status['last_update'] = time();
+        update_option($status_option, $status);
 
         error_log("ЗАВЕРШЕНО: Обработка пакета #{$status['current_batch']} ({$batch_size_actual} счетов). Статистика: завершено={$status['completed']}, успешно={$status['success']}, ошибок={$status['failed']}");
 
@@ -506,57 +585,60 @@ class Account_Updater
         $status['current_batch']++;
         update_option($status_option, $status);
 
-        // Планируем следующую порцию с адаптивной задержкой
+        // Планируем следующую порцию немедленно (с минимальной задержкой)
         if ($status['completed'] < $status['total']) {
             $remaining_accounts = $status['total'] - $status['completed'];
             $remaining_batches = ceil($remaining_accounts / $batch_size);
             error_log("ПЛАНИРОВАНИЕ: Есть еще счета для обработки ({$status['completed']}/{$status['total']}). Осталось: {$remaining_accounts} счетов в ~{$remaining_batches} пакетах");
             
-            // Получаем настройки интервала между батчами
-            $auto_update_settings = get_option('fttrader_auto_update_settings', []);
-            $base_delay = isset($auto_update_settings['fttrader_batch_processing_interval']) ?
-                intval($auto_update_settings['fttrader_batch_processing_interval']) : 300; // По умолчанию 5 минут
-            
-            // ДОБАВЛЕНО: Адаптивная задержка между пакетами при параллельной работе
-            $adaptive_delay = self::get_adaptive_delay($active_queues_count, $base_delay);
-            
-            error_log("Адаптивная задержка для следующего пакета: {$adaptive_delay} сек");
-            
-            // Проверяем, не запланирована ли уже задача для этой очереди
-            $existing_task = wp_next_scheduled('process_accounts_update_batch', [$contest_id, $queue_id]);
-            error_log("ПЛАНИРОВАНИЕ_DEBUG: Проверка существующих задач для очереди {$queue_id}. Найдено: " . ($existing_task ? date('Y-m-d H:i:s', $existing_task) : 'нет'));
-            if ($existing_task) {
-                // Проверяем, не просрочена ли задача
-                if ($existing_task > time()) {
-                    error_log("ПРЕДУПРЕЖДЕНИЕ: Задача для очереди {$queue_id} уже запланирована на " . date('Y-m-d H:i:s', $existing_task) . ". Пропускаем планирование.");
-                    return true;
-                } else {
-                    // Удаляем просроченную задачу
-                    wp_unschedule_event($existing_task, 'process_accounts_update_batch', [$contest_id, $queue_id]);
-                    error_log("ПЛАНИРОВАНИЕ_DEBUG: Удалена просроченная задача для очереди {$queue_id}");
-                }
+            // Определяем задержку в зависимости от режима обработки
+            if ($processing_mode === 'batch') {
+                // Batch режим: запуск сразу после завершения предыдущего пакета
+                error_log("BATCH РЕЖИМ: Запуск следующего пакета НЕМЕДЛЕННО после завершения предыдущего");
+                // Запускаем следующий пакет сразу без задержки
+                return self::process_batch($contest_id, $queue_id);
+            } else {
+                // Sequential режим: стандартная задержка 1 секунда
+                $delay = 1;
+                error_log("SEQUENTIAL РЕЖИМ: Следующий пакет запланирован через {$delay} сек");
             }
             
-            error_log("ПЛАНИРОВАНИЕ_DEBUG: Попытка запланировать задачу для очереди {$queue_id} через {$adaptive_delay} сек");
-            $scheduled = wp_schedule_single_event(time() + $adaptive_delay, 'process_accounts_update_batch', [$contest_id, $queue_id]);
-            error_log("ПЛАНИРОВАНИЕ_DEBUG: Результат wp_schedule_single_event: " . ($scheduled ? 'SUCCESS' : 'FAILED'));
-            
-            // Если планирование не удалось, обрабатываем следующую порцию немедленно
-            if (!$scheduled) {
-                // Логируем ошибку планирования и не запускаем рекурсивно
-                error_log(sprintf('ОШИБКА ПЛАНИРОВАНИЯ: WP-Cron не смог запланировать следующий пакет для очереди %s (contest %s). Remaining accounts will not be processed automatically.', $queue_id, $contest_id));
-                // Возможно, пометить оставшиеся счета как failed или error_scheduling
-                // ... добавить логику пометки счетов, если необходимо
-                // return self::process_batch($contest_id, $queue_id);
-            } else {
-                $next_batch_number = $status['current_batch'] + 1;
-                error_log("УСПЕХ: Следующий пакет #{$next_batch_number} запланирован на " . date('Y-m-d H:i:s', time() + $adaptive_delay));
+            // Планирование только для sequential режима (для batch уже выполнили return выше)
+            if ($processing_mode === 'sequential') {
+                // Проверяем, не запланирована ли уже задача для этой очереди
+                $existing_task = wp_next_scheduled('process_accounts_update_batch', [$contest_id, $queue_id]);
+                error_log("ПЛАНИРОВАНИЕ_DEBUG: Проверка существующих задач для очереди {$queue_id}. Найдено: " . ($existing_task ? date('Y-m-d H:i:s', $existing_task) : 'нет'));
+                if ($existing_task) {
+                    // Проверяем, не просрочена ли задача
+                    if ($existing_task > time()) {
+                        error_log("ПРЕДУПРЕЖДЕНИЕ: Задача для очереди {$queue_id} уже запланирована на " . date('Y-m-d H:i:s', $existing_task) . ". Пропускаем планирование.");
+                        return true;
+                    } else {
+                        // Удаляем просроченную задачу
+                        wp_unschedule_event($existing_task, 'process_accounts_update_batch', [$contest_id, $queue_id]);
+                        error_log("ПЛАНИРОВАНИЕ_DEBUG: Удалена просроченная задача для очереди {$queue_id}");
+                    }
+                }
                 
-                // Явный вызов spawn_cron для запуска WP Cron
-                spawn_cron();
+                error_log("ПЛАНИРОВАНИЕ_DEBUG: Попытка запланировать задачу для очереди {$queue_id} через {$delay} сек");
+                $scheduled = wp_schedule_single_event(time() + $delay, 'process_accounts_update_batch', [$contest_id, $queue_id]);
+                error_log("ПЛАНИРОВАНИЕ_DEBUG: Результат wp_schedule_single_event: " . ($scheduled ? 'SUCCESS' : 'FAILED'));
                 
-                if ($adaptive_delay > $base_delay) {
-                    error_log("Следующий пакет #{$next_batch_number} очереди {$queue_id} запланирован через {$adaptive_delay} сек (адаптивная задержка из-за параллельных очередей)");
+                // Если планирование не удалось, обрабатываем следующую порцию немедленно
+                if (!$scheduled) {
+                    // Логируем ошибку планирования и не запускаем рекурсивно
+                    error_log(sprintf('ОШИБКА ПЛАНИРОВАНИЯ: WP-Cron не смог запланировать следующий пакет для очереди %s (contest %s). Remaining accounts will not be processed automatically.', $queue_id, $contest_id));
+                    // Возможно, пометить оставшиеся счета как failed или error_scheduling
+                    // ... добавить логику пометки счетов, если необходимо
+                    // return self::process_batch($contest_id, $queue_id);
+                } else {
+                    $next_batch_number = $status['current_batch'] + 1;
+                    error_log("УСПЕХ: Следующий пакет #{$next_batch_number} запланирован на " . date('Y-m-d H:i:s', time() + $delay));
+                    
+                    // Явный вызов spawn_cron для запуска WP Cron
+                    spawn_cron();
+                    
+                    error_log("Следующий пакет #{$next_batch_number} очереди {$queue_id} запланирован через {$delay} сек");
                 }
             }
         } else {
@@ -1128,12 +1210,11 @@ class Account_Updater
         // Для каждого активного конкурса создаем отдельную очередь обновления
         foreach ($active_contests as $contest_id) {
             // ПРОВЕРЯЕМ КОЛЛИЗИИ: Если есть запущенные очереди для этого конкурса, пропускаем
-            // ОТКЛЮЧЕНО: эта проверка блокировала создание новых очередей
-            //$existing_status = self::get_status($contest_id);
-            //if ($existing_status['is_running']) {
-            //    error_log("Автоматическое обновление пропущено для конкурса {$contest_id}: есть запущенная очередь");
-            //    continue;
-            //}
+            $existing_status = self::get_status($contest_id);
+            if ($existing_status['is_running']) {
+                error_log("Автоматическое обновление пропущено для конкурса {$contest_id}: есть запущенная очередь");
+                continue;
+            }
             
             // Получаем активные счета данного конкурса
             $contest_accounts = $wpdb->get_col($wpdb->prepare(
@@ -1615,6 +1696,344 @@ class Account_Updater
                 'error' => $e->getMessage()
             ];
         }
+    }
+
+    /**
+     * Параллельная обработка пакета счетов с использованием curl_multi
+     * 
+     * @param array $account_batch Массив ID счетов для параллельной обработки
+     * @param string $queue_batch_id ID очереди для логирования
+     * @return array Результаты обработки каждого счета
+     */
+    private static function process_accounts_parallel($account_batch, $queue_batch_id = null)
+    {
+        global $wpdb;
+        
+        if (empty($account_batch)) {
+            return [];
+        }
+        
+        error_log("ПАРАЛЛЕЛЬНАЯ ОБРАБОТКА: Начинаем обработку " . count($account_batch) . " счетов одновременно");
+        
+        // Подготавливаем данные для всех счетов в пакете
+        $account_requests = [];
+        $curl_handles = [];
+        $multi_handle = curl_multi_init();
+        
+        foreach ($account_batch as $account_id) {
+            $account = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}contest_members WHERE id = %d",
+                $account_id
+            ));
+            
+            if (!$account) {
+                error_log("ОШИБКА: Счет ID {$account_id} не найден в БД");
+                continue;
+            }
+            
+            // Подготавливаем параметры запроса как в process_trading_account
+            require_once plugin_dir_path(__FILE__) . 'class-api-config.php';
+            $api_url = FT_API_Config::get_api_url();
+            
+            $params = [
+                'action' => 'get_data',
+                'account_number' => $account->account_number,
+                'password' => $account->password,
+                'server' => $account->server,
+                'terminal' => $account->terminal,
+                'last_history_time' => $account->last_history_time
+            ];
+            
+            if ($queue_batch_id) {
+                $params['queue_batch_id'] = $queue_batch_id;
+            }
+            
+            $url = $api_url . '?' . http_build_query($params);
+            
+            // Создаем curl handle для каждого счета
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $url,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 35, // Немного больше чем обычный таймаут
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_USERAGENT => 'WordPress/' . get_bloginfo('version') . '; ' . home_url()
+            ]);
+            
+            curl_multi_add_handle($multi_handle, $ch);
+            
+            $curl_handles[$account_id] = $ch;
+            $account_requests[$account_id] = [
+                'account' => $account,
+                'url' => $url,
+                'start_time' => microtime(true)
+            ];
+        }
+        
+                 // Выполняем все запросы параллельно с отслеживанием времени завершения
+         $running = null;
+         $completed_requests = [];
+         
+         do {
+             curl_multi_exec($multi_handle, $running);
+             
+             // Проверяем завершенные запросы и записываем их время завершения
+             while (($info = curl_multi_info_read($multi_handle)) !== false) {
+                 if ($info['result'] === CURLE_OK) {
+                     // Находим account_id для этого handle
+                     foreach ($curl_handles as $account_id => $handle) {
+                         if ($handle === $info['handle']) {
+                             $completed_requests[$account_id] = microtime(true);
+                             break;
+                         }
+                     }
+                 }
+             }
+             
+             curl_multi_select($multi_handle);
+         } while ($running > 0);
+         
+         // Собираем результаты
+         $results = [];
+         foreach ($account_requests as $account_id => $request_data) {
+             $ch = $curl_handles[$account_id];
+             $response_body = curl_multi_getcontent($ch);
+             $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+             $total_time = curl_getinfo($ch, CURLINFO_TOTAL_TIME);
+             
+             // Используем реальное время завершения если доступно, иначе текущее время
+             $request_end_time = isset($completed_requests[$account_id]) ? 
+                               $completed_requests[$account_id] : microtime(true);
+             $duration_ms = round(($request_end_time - $request_data['start_time']) * 1000, 2);
+            
+                         // Логируем HTTP запрос (аналогично process_trading_account)
+             $http_log_path = plugin_dir_path(__FILE__) . 'logs/http_requests.log';
+             $request_id = 'req_' . uniqid();
+             
+             // Конвертируем микросекунды в читаемое время
+             $start_time_readable = date('Y-m-d H:i:s', (int)$request_data['start_time']) . 
+                                   '.' . str_pad((int)(($request_data['start_time'] - (int)$request_data['start_time']) * 1000), 3, '0', STR_PAD_LEFT);
+             $end_time_readable = date('Y-m-d H:i:s', $request_end_time) . 
+                                '.' . str_pad((int)(($request_end_time - (int)$request_end_time) * 1000), 3, '0', STR_PAD_LEFT);
+             
+             $log_entry = "============================================================\n";
+             $log_entry .= "🌐 HTTP REQUEST START (PARALLEL)\n";
+             $log_entry .= "   ID: " . $request_id . "\n";
+             $log_entry .= "   START_TIME: " . $start_time_readable . "\n";
+             $log_entry .= "   ACCOUNT: " . $request_data['account']->account_number . "\n";
+             $log_entry .= "   SERVER: " . $request_data['account']->server . "\n";
+             $log_entry .= "   URL: " . $request_data['url'] . "\n";
+             $log_entry .= "   QUEUE: " . ($queue_batch_id ?: 'unknown') . "\n";
+             $log_entry .= "   ------------------------------------------------------------\n";
+             $log_entry .= "✅ HTTP REQUEST END (PARALLEL)\n";
+             $log_entry .= "   ID: " . $request_id . "\n";
+             $log_entry .= "   END_TIME: " . $end_time_readable . "\n";
+             $log_entry .= "   DURATION: " . $duration_ms . "ms\n";
+             $log_entry .= "   HTTP_CODE: " . $http_code . "\n";
+             $log_entry .= "   RESPONSE_SIZE: " . strlen($response_body) . " bytes\n";
+             $log_entry .= "============================================================\n";
+            
+            file_put_contents($http_log_path, $log_entry, FILE_APPEND | LOCK_EX);
+            
+            // Обрабатываем ответ (аналогично process_trading_account)
+            $account_result = self::process_api_response(
+                $account_id, 
+                $request_data['account'], 
+                $response_body, 
+                $http_code
+            );
+            
+            $results[$account_id] = $account_result;
+            
+            error_log("ПАРАЛЛЕЛЬНАЯ ОБРАБОТКА: Счет {$account_id} обработан за {$duration_ms}ms, HTTP {$http_code}");
+            
+            // Очищаем curl handle
+            curl_multi_remove_handle($multi_handle, $ch);
+            curl_close($ch);
+        }
+        
+        curl_multi_close($multi_handle);
+        
+        error_log("ПАРАЛЛЕЛЬНАЯ ОБРАБОТКА: Завершена обработка " . count($results) . " счетов");
+        
+        return $results;
+    }
+    
+    /**
+     * Обработка ответа API сервера (выделено из process_trading_account)
+     * 
+     * @param int $account_id ID счета
+     * @param object $account Данные счета из БД
+     * @param string $response_body Тело ответа HTTP
+     * @param int $http_code HTTP код ответа
+     * @return array Результат обработки
+     */
+    private static function process_api_response($account_id, $account, $response_body, $http_code)
+    {
+        global $wpdb;
+        
+        // Проверяем HTTP код
+        if ($http_code !== 200) {
+            if ($http_code == 500) {
+                return [
+                    'success' => false,
+                    'message' => 'Сервер API временно недоступен. На сервере идет обновление.'
+                ];
+            } elseif ($http_code >= 400 && $http_code < 500) {
+                return [
+                    'success' => false,
+                    'message' => "Ошибка запроса к API (код {$http_code}). Проверьте данные для входа."
+                ];
+            } else {
+                return [
+                    'success' => false,
+                    'message' => "Ошибка HTTP {$http_code}"
+                ];
+            }
+        }
+        
+        // Проверяем пустой ответ
+        if (empty($response_body)) {
+            return [
+                'success' => false,
+                'message' => 'Сервер API вернул пустой ответ'
+            ];
+        }
+        
+        // Декодируем JSON
+        $data = json_decode($response_body, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return [
+                'success' => false,
+                'message' => 'Получен некорректный ответ от сервера API: ' . json_last_error_msg()
+            ];
+        }
+        
+        // Проверяем наличие данных счета
+        if (!isset($data['acc'])) {
+            return [
+                'success' => false,
+                'message' => 'Ошибка в ответе API: отсутствуют данные счета'
+            ];
+        }
+        
+        // Проверяем статус подключения
+        if (isset($data['acc']['connection_status']) && $data['acc']['connection_status'] === 'disconnected') {
+            $error_message = isset($data['acc']['error_description']) && !empty($data['acc']['error_description']) 
+                ? $data['acc']['error_description'] 
+                : 'Не удалось подключиться к счёту. Проверьте логин, пароль и сервер.';
+            
+            // Обновляем только статус подключения
+            $wpdb->update(
+                $wpdb->prefix . 'contest_members',
+                [
+                    'connection_status' => 'disconnected',
+                    'error_description' => $error_message,
+                    'last_update' => current_time('mysql')
+                ],
+                ['id' => $account_id]
+            );
+            
+            return [
+                'success' => false,
+                'message' => $error_message
+            ];
+        }
+        
+        // Маппинг полей API -> БД (из process_trading_account)
+        $fields_map = [
+            'balance' => ['acc', 'i_bal'],
+            'equity' => ['acc', 'i_equi'], 
+            'margin' => ['acc', 'i_marg'],
+            'profit' => ['acc', 'i_prof'],
+            'leverage' => ['acc', 'i_level'], // исправлено: используем i_level
+            'currency' => ['acc', 'i_curr'],
+            'orders_total' => ['acc', 'i_ordtotal'],
+            'orders_history_total' => ['statistics', 'ACCOUNT_ORDERS_HISTORY_TOTAL'],
+            'orders_history_profit' => ['statistics', 'ACCOUNT_ORDERS_HISTORY_PROFIT']
+        ];
+        
+        // Подготавливаем данные для БД
+        $db_data = [
+            'connection_status' => 'connected',
+            'error_description' => '',
+            'last_update' => current_time('mysql')
+        ];
+        
+        // Сохраняем старые данные для истории изменений
+        $old_data = [
+            'balance' => $account->balance,
+            'equity' => $account->equity,
+            'margin' => $account->margin,
+            'profit' => $account->profit,
+            'leverage' => $account->leverage,
+            'orders_total' => $account->orders_total,
+            'orders_history_total' => $account->orders_history_total,
+            'password' => $account->password
+        ];
+        
+        $new_data_for_history = ['connection_status' => 'connected'];
+        
+        // Обрабатываем поля
+        foreach ($fields_map as $db_key => $path) {
+            $section = $path[0];
+            $key = $path[1];
+            
+            if (isset($data[$section][$key]) && $data[$section][$key] !== '' && $data[$section][$key] !== null) {
+                $value = floatval($data[$section][$key]);
+                $db_data[$db_key] = $value;
+                $new_data_for_history[$db_key] = $value;
+            }
+        }
+        
+        // Рассчитываем процент прибыли
+        if (isset($db_data['balance']) && $db_data['balance'] > 0 && isset($db_data['profit'])) {
+            $db_data['profit_percent'] = round(($db_data['profit'] / $db_data['balance']) * 100, 2);
+        }
+        
+        // Обновляем данные в БД
+        $result = $wpdb->update(
+            $wpdb->prefix . 'contest_members',
+            $db_data,
+            ['id' => $account_id]
+        );
+        
+        if ($result === false) {
+            return [
+                'success' => false,
+                'message' => 'Ошибка базы данных: ' . $wpdb->last_error
+            ];
+        }
+        
+        // Записываем изменения в историю
+        require_once 'class-account-history.php';
+        $history = new Account_History();
+        $history->track_changes($account_id, $old_data, $new_data_for_history);
+        
+        // Обрабатываем ордера если есть
+        if (isset($data['open_orders']) && is_array($data['open_orders'])) {
+            require_once 'class-orders.php';
+            $orders = new Account_Orders();
+            try {
+                $orders->update_orders($account_id, $data['open_orders']);
+            } catch (Exception $e) {
+                error_log('Error updating orders for account ' . $account_id . ': ' . $e->getMessage());
+            }
+        }
+        
+        // Обрабатываем историю сделок
+        if (isset($data['order_history']) && is_array($data['order_history'])) {
+            require_once 'class-orders.php';
+            $orders = new Account_Orders();
+            $orders->update_order_history($account_id, $data['order_history']);
+        }
+        
+        return [
+            'success' => true,
+            'message' => 'Данные счета успешно обновлены'
+        ];
     }
 }
 

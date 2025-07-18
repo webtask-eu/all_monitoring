@@ -211,9 +211,43 @@ if (!$is_edit_mode) {
                             serverSelect.val(selectedValue);
                         }
                         
-                        // Устанавливаем значение terminal как "metatrader4" по умолчанию
+                        // Устанавливаем значение terminal на основе настроек конкурса
                         if (!$('#terminal').val()) {
-                            $('#terminal').val('metatrader4');
+                            // Получаем platform_id из настроек конкурса через AJAX
+                            $.ajax({
+                                url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                                type: 'POST',
+                                async: false, // Синхронный запрос для получения платформы
+                                data: {
+                                    action: 'get_contest_platform',
+                                    nonce: '<?php echo wp_create_nonce('ft_contest_nonce'); ?>',
+                                    contest_id: contestId
+                                },
+                                success: function(response) {
+                                    console.log('[DEBUG] Ответ платформы конкурса:', response);
+                                    if (response.success && response.data.platform_slug) {
+                                        var terminalValue = 'metatrader4'; // По умолчанию
+                                        
+                                        if (response.data.platform_slug === 'metatrader5' || response.data.platform_slug === 'mt5') {
+                                            terminalValue = 'metatrader5';
+                                        } else if (response.data.platform_slug === 'metatrader4' || response.data.platform_slug === 'mt4') {
+                                            terminalValue = 'metatrader4';
+                                        } else if (response.data.platform_slug === 'ctrader') {
+                                            terminalValue = 'ctrader';
+                                        }
+                                        
+                                        $('#terminal').val(terminalValue);
+                                        console.log('[DEBUG] Установлен terminal на основе конкурса:', terminalValue);
+                                    } else {
+                                        $('#terminal').val('metatrader4'); // Резервное значение
+                                        console.log('[DEBUG] Использован резервный terminal: metatrader4');
+                                    }
+                                },
+                                error: function() {
+                                    $('#terminal').val('metatrader4'); // Резервное значение при ошибке
+                                    console.log('[DEBUG] Ошибка получения платформы, установлен metatrader4');
+                                }
+                            });
                         }
                         
                         console.log('[DEBUG] Серверы конкурса загружены успешно');
@@ -257,6 +291,46 @@ if (!$is_edit_mode) {
                 // Определяем режим работы формы
                 const isEditMode = $('#account_id').length > 0;
                 const action = isEditMode ? 'update_contest_account_data' : 'register_contest_account';
+
+                // Убедимся, что terminal установлен правильно перед отправкой
+                if (!$('#terminal').val()) {
+                    // Если терминал не установлен, попробуем установить на основе конкурса
+                    const contestId = $('#contest_id').val();
+                    
+                    $.ajax({
+                        url: ftContestData.ajax_url,
+                        type: 'POST',
+                        async: false, // Синхронный запрос
+                        data: {
+                            action: 'get_contest_platform',
+                            nonce: ftContestData.nonce,
+                            contest_id: contestId
+                        },
+                        success: function(response) {
+                            if (response.success && response.data.platform_slug) {
+                                var terminalValue = 'metatrader4'; // По умолчанию
+                                
+                                if (response.data.platform_slug === 'metatrader5' || response.data.platform_slug === 'mt5') {
+                                    terminalValue = 'metatrader5';
+                                } else if (response.data.platform_slug === 'metatrader4' || response.data.platform_slug === 'mt4') {
+                                    terminalValue = 'metatrader4';
+                                } else if (response.data.platform_slug === 'ctrader') {
+                                    terminalValue = 'ctrader';
+                                }
+                                
+                                $('#terminal').val(terminalValue);
+                                console.log('[DEBUG] Установлен terminal перед отправкой формы:', terminalValue);
+                            } else {
+                                $('#terminal').val('metatrader4');
+                                console.log('[DEBUG] Использован резервный terminal перед отправкой: metatrader4');
+                            }
+                        },
+                        error: function() {
+                            $('#terminal').val('metatrader4');
+                            console.log('[DEBUG] Ошибка получения платформы перед отправкой, установлен metatrader4');
+                        }
+                    });
+                }
 
                 // Получаем данные формы
                 const formData = {

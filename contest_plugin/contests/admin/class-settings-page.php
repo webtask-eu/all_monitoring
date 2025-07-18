@@ -23,6 +23,9 @@ class FTTrader_Settings_Page
         
         // Добавляем AJAX для проверки соединения с SERVERAPI
         add_action('wp_ajax_check_direct_connection', [$this, 'check_direct_connection']);
+        
+        // Добавляем AJAX для управления демоном очередей
+        add_action('wp_ajax_fttrader_daemon_control', [$this, 'handle_daemon_control']);
     }
 
     /**
@@ -254,6 +257,24 @@ class FTTrader_Settings_Page
             ]
         );
 
+        // Режим обработки счетов
+        add_settings_field(
+            'fttrader_processing_mode',
+            'Режим обработки счетов',
+            [$this, 'render_select_field'],
+            'fttrader_settings',
+            'fttrader_auto_update_section',
+            [
+                'label_for' => 'fttrader_processing_mode',
+                'description' => 'Батчевый режим - обработка группами с интервалами. Последовательный - все счета подряд без задержек.',
+                'options' => [
+                    'batch' => 'Батчевый (рекомендуется)',
+                    'sequential' => 'Последовательный (быстро)'
+                ],
+                'default' => 'batch'
+            ]
+        );
+
         // Интервал между обработкой батчей
         add_settings_field(
             'fttrader_batch_processing_interval',
@@ -263,7 +284,7 @@ class FTTrader_Settings_Page
             'fttrader_auto_update_section',
             [
                 'label_for' => 'fttrader_batch_processing_interval',
-                'description' => 'Интервал между обработкой порций счетов внутри одной очереди. Через сколько секунд обрабатывать следующую порцию счетов. По умолчанию: 300 секунд (5 минут).',
+                'description' => 'Интервал между обработкой порций счетов внутри одной очереди. Через сколько секунд обрабатывать следующую порцию счетов. По умолчанию: 300 секунд (5 минут). Применяется только в батчевом режиме.',
                 'default' => 300,
                 'min' => 1,
                 'max' => 3600 // 1 час
@@ -380,6 +401,25 @@ class FTTrader_Settings_Page
         $value = isset($options[$id]) ? $options[$id] : $args['default'];
 
         echo '<input type="number" id="' . esc_attr($id) . '" name="fttrader_auto_update_settings[' . esc_attr($id) . ']" value="' . esc_attr($value) . '" min="' . esc_attr($args['min']) . '" max="' . esc_attr($args['max']) . '" class="regular-text">';
+
+        if (isset($args['description'])) {
+            echo '<p class="description">' . esc_html($args['description']) . '</p>';
+        }
+    }
+
+    // Отрисовка поля с выбором
+    public function render_select_field($args)
+    {
+        $options = get_option('fttrader_auto_update_settings', []);
+        $id = $args['label_for'];
+        $value = isset($options[$id]) ? $options[$id] : $args['default'];
+
+        echo '<select id="' . esc_attr($id) . '" name="fttrader_auto_update_settings[' . esc_attr($id) . ']" class="regular-text">';
+        foreach ($args['options'] as $option_value => $option_label) {
+            $selected = selected($value, $option_value, false);
+            echo '<option value="' . esc_attr($option_value) . '" ' . $selected . '>' . esc_html($option_label) . '</option>';
+        }
+        echo '</select>';
 
         if (isset($args['description'])) {
             echo '<p class="description">' . esc_html($args['description']) . '</p>';
@@ -514,6 +554,18 @@ class FTTrader_Settings_Page
         }
         */
 
+        // Режим обработки счетов
+        if (isset($input['fttrader_processing_mode'])) {
+            $allowed_modes = ['batch', 'sequential'];
+            if (in_array($input['fttrader_processing_mode'], $allowed_modes)) {
+                $sanitized_input['fttrader_processing_mode'] = $input['fttrader_processing_mode'];
+            } else {
+                $sanitized_input['fttrader_processing_mode'] = 'batch'; // По умолчанию
+            }
+        } else {
+            $sanitized_input['fttrader_processing_mode'] = 'batch';
+        }
+
         return $sanitized_input;
     }
 
@@ -538,6 +590,17 @@ class FTTrader_Settings_Page
         $status = Account_Updater::get_status();
 
         echo '<div class="auto-update-status">';
+        
+        // Проверяем статус демона и показываем предупреждение если остановлен
+        $daemon_status = $this->get_daemon_status();
+        if (!$daemon_status['running']) {
+            echo '<div class="notice notice-error" style="padding: 15px; margin: 15px 0; border-left: 4px solid #dc3232;">';
+            echo '<h4 style="margin: 0 0 10px 0; color: #dc3232;">⚠️ Демон очередей остановлен</h4>';
+            echo '<p style="margin: 0; font-size: 14px;">Обновление торговых счетов будет происходить <strong>медленно</strong> через стандартный WordPress Cron. ';
+            echo 'Для быстрого обновления счетов запустите демон очередей ниже (счет обрабатывается сразу после ответа от сервера об обработке предыдущего счета, иначе по крону).</p>';
+            echo '</div>';
+        }
+        
         echo '<h3>Статус автоматического обновления</h3>';
 
         echo '<table class="form-table" role="presentation">';
@@ -615,6 +678,36 @@ class FTTrader_Settings_Page
             echo '</tr>';
         }
 
+        // === ДОБАВЛЯЕМ ИНФОРМАЦИЮ О ДЕМОНЕ ОЧЕРЕДЕЙ ===
+        $daemon_status = $this->get_daemon_status();
+        
+        // Режим обработки
+        $processing_mode = get_option('fttrader_processing_mode', 'batch');
+        echo '<tr>';
+        echo '<th scope="row">Режим обработки</th>';
+        echo '<td>';
+        echo $processing_mode === 'sequential' ? 'Последовательный (через демон)' : 'Пакетный (стандартный)';
+        echo '</td>';
+        echo '</tr>';
+        
+        // Статус демона
+        echo '<tr>';
+        echo '<th scope="row">Демон очередей</th>';
+        echo '<td>';
+        if ($daemon_status['running']) {
+            echo '<span class="status-enabled">Запущен (PID: ' . $daemon_status['pid'] . ')</span>';
+            if ($daemon_status['uptime']) {
+                echo '<br><small>Время работы: ' . $daemon_status['uptime'] . '</small>';
+            }
+            if ($daemon_status['tasks_executed'] > 0) {
+                echo '<br><small>Выполнено задач: ' . $daemon_status['tasks_executed'] . '</small>';
+            }
+        } else {
+            echo '<span class="status-disabled">Остановлен</span>';
+        }
+        echo '</td>';
+        echo '</tr>';
+
         echo '</tbody>';
         echo '</table>';
 
@@ -636,12 +729,39 @@ class FTTrader_Settings_Page
         // Добавляем кнопку восстановления расписания автообновления
         echo '<button id="restore-auto-update-schedule" class="button button-secondary">Восстановить расписание автообновления</button>';
         
+        echo '<br><br>';
+        
+        // Кнопки управления демоном очередей
+        if ($daemon_status['running']) {
+            echo '<button id="daemon-stop" class="button button-secondary" data-action="stop">Остановить демон</button> ';
+            echo '<button id="daemon-restart" class="button" data-action="restart">Перезапустить демон</button> ';
+        } else {
+            echo '<button id="daemon-start" class="button button-primary" data-action="start">Запустить демон</button> ';
+        }
+        echo '<button id="daemon-status" class="button" data-action="status">Обновить статус</button> ';
+        echo '<button id="daemon-install-autostart" class="button button-secondary" data-action="install-autostart">Установить автозагрузку</button>';
+        
+        echo '<br>';
         echo '<span id="clear-queues-status" style="margin-left: 10px;"></span>';
         echo '<span id="restore-schedule-status" style="margin-left: 10px;"></span>';
+        echo '<span id="daemon-action-status" style="margin-left: 10px;"></span>';
 
         echo '</p>';
 
+        // Логи демона (последние записи)
+        if ($daemon_status['running'] && !empty($daemon_status['log_entries'])) {
+            echo '<h4>Последние записи лога демона:</h4>';
+            echo '<div class="daemon-logs" style="background: #f8f9fa; padding: 10px; border: 1px solid #ddd; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;">';
+            foreach (array_slice($daemon_status['log_entries'], -10) as $log_entry) {
+                echo esc_html($log_entry) . '<br>';
+            }
+            echo '</div>';
+        }
+
         echo '</div>';
+        
+        // Добавляем JavaScript для управления демоном
+        $this->add_daemon_management_scripts();
     }
 
     // Новый метод для регистрации настроек графика
@@ -2424,6 +2544,202 @@ class FTTrader_Settings_Page
     }
     */
     
+    /**
+     * Обрабатывает AJAX запросы управления демоном
+     */
+    public function handle_daemon_control()
+    {
+        // Проверяем nonce для безопасности
+        if (!wp_verify_nonce($_POST['nonce'], 'daemon_control_nonce')) {
+            wp_send_json_error(['message' => 'Ошибка безопасности']);
+            return;
+        }
+        
+        // Проверяем права пользователя
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'У вас нет прав для выполнения этого действия']);
+            return;
+        }
+        
+        $action = sanitize_text_field($_POST['daemon_action']);
+        $daemon_script = plugin_dir_path(dirname(__FILE__)) . 'daemon-control.sh';
+        
+        // Проверяем существует ли скрипт управления
+        if (!file_exists($daemon_script)) {
+            wp_send_json_error(['message' => 'Скрипт управления демоном не найден']);
+            return;
+        }
+        
+        $output = [];
+        $return_code = 0;
+        
+        switch ($action) {
+            case 'start':
+                exec("cd " . escapeshellarg(dirname($daemon_script)) . " && ./daemon-control.sh start 2>&1", $output, $return_code);
+                $message = $return_code === 0 ? 'Демон успешно запущен' : 'Ошибка запуска демона: ' . implode(' ', $output);
+                break;
+                
+            case 'stop':
+                exec("cd " . escapeshellarg(dirname($daemon_script)) . " && ./daemon-control.sh stop 2>&1", $output, $return_code);
+                $message = $return_code === 0 ? 'Демон успешно остановлен' : 'Ошибка остановки демона: ' . implode(' ', $output);
+                break;
+                
+            case 'restart':
+                exec("cd " . escapeshellarg(dirname($daemon_script)) . " && ./daemon-control.sh restart 2>&1", $output, $return_code);
+                $message = $return_code === 0 ? 'Демон успешно перезапущен' : 'Ошибка перезапуска демона: ' . implode(' ', $output);
+                break;
+                
+            case 'status':
+                $daemon_status = $this->get_daemon_status();
+                $message = $daemon_status['running'] ? 
+                    'Демон запущен (PID: ' . $daemon_status['pid'] . ', выполнено задач: ' . $daemon_status['tasks_executed'] . ')' : 
+                    'Демон остановлен';
+                $return_code = 0; // Статус всегда успешен
+                break;
+                
+            case 'install-autostart':
+                $install_script = plugin_dir_path(dirname(__FILE__)) . 'install-autostart.sh';
+                if (!file_exists($install_script)) {
+                    wp_send_json_error(['message' => 'Скрипт установки автозагрузки не найден']);
+                    return;
+                }
+                exec("chmod +x " . escapeshellarg($install_script));
+                exec("sudo " . escapeshellarg($install_script) . " 2>&1", $output, $return_code);
+                $message = $return_code === 0 ? 
+                    'Автозагрузка демона успешно установлена. Демон будет запускаться при перезагрузке сервера.' : 
+                    'Ошибка установки автозагрузки: ' . implode(' ', $output);
+                break;
+                
+            default:
+                wp_send_json_error(['message' => 'Неизвестное действие']);
+                return;
+        }
+        
+        if ($return_code === 0) {
+            wp_send_json_success(['message' => $message]);
+        } else {
+            wp_send_json_error(['message' => $message]);
+        }
+    }
+    
+
+    
+    /**
+     * Получает статус демона очередей
+     */
+    private function get_daemon_status()
+    {
+        $daemon_script = plugin_dir_path(dirname(__FILE__)) . 'daemon-control.sh';
+        $status = [
+            'running' => false,
+            'pid' => null,
+            'uptime' => '',
+            'tasks_executed' => 0,
+            'log_entries' => []
+        ];
+        
+        // Проверяем существует ли скрипт управления
+        if (!file_exists($daemon_script)) {
+            return $status;
+        }
+        
+        // Выполняем команду статуса
+        $output = [];
+        $return_code = 0;
+        $command = "cd " . escapeshellarg(dirname($daemon_script)) . " && bash ./daemon-control.sh status 2>&1";
+        exec($command, $output, $return_code);
+        
+        if (empty($output)) {
+            // Пробуем альтернативную команду
+            $alt_command = "bash " . dirname($daemon_script) . "/daemon-control.sh status 2>&1";
+            exec($alt_command, $output, $return_code);
+        }
+        
+        if ($return_code === 0 && !empty($output)) {
+            // Парсим вывод команды статуса
+            foreach ($output as $line) {
+                if (strpos($line, 'Демон запущен (PID:') !== false) {
+                    preg_match('/PID:\s*(\d+)/', $line, $matches);
+                    if (isset($matches[1])) {
+                        $status['running'] = true;
+                        $status['pid'] = $matches[1];
+                    }
+                }
+                if (strpos($line, 'STARTED') !== false) {
+                    // Извлекаем время запуска из вывода ps (формат: HH:MM:SS)
+                    preg_match('/STARTED\s+(\d{1,2}:\d{2}:\d{2})/', $line, $matches);
+                    if (isset($matches[1])) {
+                        $today = date('Y-m-d');
+                        $start_time = strtotime($today . ' ' . $matches[1]);
+                        if ($start_time && $start_time <= time()) {
+                            $status['uptime'] = human_time_diff($start_time, time());
+                        }
+                    }
+                }
+                if (strpos($line, 'Статистика: выполнено задач:') !== false) {
+                    preg_match('/выполнено задач:\s*(\d+)/', $line, $matches);
+                    if (isset($matches[1])) {
+                        $status['tasks_executed'] = intval($matches[1]);
+                    }
+                }
+                if (strpos($line, '[QUEUE-DAEMON]') !== false) {
+                    $status['log_entries'][] = $line;
+                }
+            }
+        }
+        
+        return $status;
+    }
+    
+    /**
+     * Добавляет JavaScript для управления демоном
+     */
+    private function add_daemon_management_scripts()
+    {
+        ?>
+        <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            // Обработчики кнопок управления демоном
+            $('[id^="daemon-"]').on('click', function() {
+                var action = $(this).data('action');
+                var $button = $(this);
+                var $status = $('#daemon-action-status');
+                
+                $button.prop('disabled', true);
+                $status.html('<span style="color: #666;">Выполняется...</span>');
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'fttrader_daemon_control',
+                        daemon_action: action,
+                        nonce: '<?php echo wp_create_nonce('daemon_control_nonce'); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            $status.html('<span style="color: #46b450;">✓ ' + response.data.message + '</span>');
+                            // Обновляем страницу через разное время в зависимости от действия
+                            var reloadDelay = action === 'install-autostart' ? 5000 : 2000;
+                            setTimeout(function() {
+                                location.reload();
+                            }, reloadDelay);
+                        } else {
+                            $status.html('<span style="color: #dc3232;">✗ ' + response.data.message + '</span>');
+                        }
+                    },
+                    error: function() {
+                        $status.html('<span style="color: #dc3232;">✗ Ошибка выполнения команды</span>');
+                    },
+                    complete: function() {
+                        $button.prop('disabled', false);
+                    }
+                });
+            });
+        });
+        </script>
+        <?php
+    }
 
 }
 

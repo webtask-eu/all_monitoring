@@ -780,17 +780,25 @@ jQuery(document).ready(function($) {
                 const diffMinutes = Math.floor((now - updateTime) / 60000);
                 let timeText = '';
                 let timeClass = '';
+                // Логика цветов: до 3ч зеленый, 3-6ч оранжевый, 6ч+ красный
                 if (diffMinutes < 1) {
                     timeText = 'только что';
                     timeClass = 'recent';
                 } else if (diffMinutes < 60) {
                     timeText = diffMinutes + ' мин. назад';
-                    timeClass = diffMinutes < 30 ? 'recent' : 'moderate';
+                    timeClass = diffMinutes < 180 ? 'recent' : 'moderate'; // До 3 часов
                 } else if (diffMinutes < 1440) {
                     const hours = Math.floor(diffMinutes / 60);
                     const minutes = diffMinutes % 60;
                     timeText = hours + ' ч. ' + minutes + ' мин. назад';
-                    timeClass = 'moderate';
+                    // До 3ч зеленый, 3-6ч оранжевый, 6ч+ красный
+                    if (diffMinutes < 180) {
+                        timeClass = 'recent';
+                    } else if (diffMinutes < 360) {
+                        timeClass = 'moderate';
+                    } else {
+                        timeClass = 'stale';
+                    }
                 } else {
                     const days = Math.floor(diffMinutes / 1440);
                     timeText = days + ' д. назад';

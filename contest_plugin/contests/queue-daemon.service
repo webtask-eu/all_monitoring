@@ -1,0 +1,24 @@
+[Unit]
+Description=ForTraders Queue Daemon
+After=network.target mysql.service
+Wants=mysql.service
+
+[Service]
+Type=simple
+User=fortrader
+Group=psacln
+WorkingDirectory=/var/www/vhosts/fortraders.org/httpdocs/wp-content/plugins/contests
+ExecStart=/opt/plesk/php/8.1/bin/php /var/www/vhosts/fortraders.org/httpdocs/wp-content/plugins/contests/queue-daemon.php
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fortraders-queue-daemon
+
+# Базовая безопасность
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target 
